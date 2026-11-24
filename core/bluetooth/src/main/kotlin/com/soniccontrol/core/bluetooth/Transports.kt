@@ -118,31 +118,55 @@ class RfcommTransport private constructor(
         }
     }
 
+    /** Result of an open attempt: the transport or a classified failure. */
+    class OpenResult(val transport: RfcommTransport?, val insecure: Boolean, val failure: String?, val detail: String?)
+
     companion object {
+        /** Maps Android's generic socket messages to a cause that a human can act on. */
+        fun classify(message: String?): String = when {
+            message == null -> "IO_ERROR"
+            message.contains("read failed", true) || message.contains("socket might closed", true) -> "REMOTE_CLOSED"
+            message.contains("timeout", true) -> "TIMEOUT"
+            message.contains("refused", true) || message.contains("not available", true) -> "SERVICE_NOT_AVAILABLE"
+            message.contains("Device or resource busy", true) -> "BUSY"
+            else -> "IO_ERROR"
+        }
+
+        /** Secure socket first; on failure one insecure attempt (same RFCOMM channel, link-level encryption not required). */
         suspend fun open(
             device: BluetoothDevice, uuid: UUID, writable: Boolean, scope: CoroutineScope, sink: DiagnosticSink, clock: () -> Long,
-        ): RfcommTransport? = withContext(Dispatchers.IO) {
-            sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "opening RFCOMM $uuid", null, device.address))
+        ): OpenResult {
+            val first = openOnce(device, uuid, writable, false, scope, sink, clock)
+            if (first.transport != null || first.failure == "PERMISSION") return first
+            val second = openOnce(device, uuid, writable, true, scope, sink, clock)
+            return if (second.transport != null) second else OpenResult(null, true, second.failure, "secure=${first.failure}; insecure=${second.failure}")
+        }
+
+        private suspend fun openOnce(
+            device: BluetoothDevice, uuid: UUID, writable: Boolean, insecure: Boolean, scope: CoroutineScope, sink: DiagnosticSink, clock: () -> Long,
+        ): OpenResult = withContext(Dispatchers.IO) {
+            sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "opening RFCOMM $uuid insecure=$insecure", null, device.address))
             var socket: BluetoothSocket? = null
             // connect() blocks and ignores coroutine cancellation; closing the socket aborts it, so nothing leaks.
             val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause -> if (cause != null) runCatching { socket?.close() } }
             try {
-                val s = device.createRfcommSocketToServiceRecord(uuid)
+                val s = if (insecure) device.createInsecureRfcommSocketToServiceRecord(uuid) else device.createRfcommSocketToServiceRecord(uuid)
                 socket = s
                 s.connect()
                 coroutineContext.ensureActive()
-                RfcommTransport(s, uuid, writable, scope, sink, clock)
+                OpenResult(RfcommTransport(s, uuid, writable, scope, sink, clock), insecure, null, null)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 runCatching { socket?.close() }
                 throw e
             } catch (e: IOException) {
                 runCatching { socket?.close() }
-                sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "RFCOMM $uuid failed: ${e.message}", null, device.address))
-                null
+                val cause = classify(e.message)
+                sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "RFCOMM $uuid failed (insecure=$insecure): $cause: ${e.message}", null, device.address))
+                OpenResult(null, insecure, cause, e.message)
             } catch (e: SecurityException) {
                 runCatching { socket?.close() }
                 sink.log(DiagnosticEvent(clock(), EventCategory.PERMISSION, "RFCOMM: ${e.message}", null, device.address))
-                null
+                OpenResult(null, insecure, "PERMISSION", e.message)
             } finally {
                 cancelHandle?.dispose()
             }

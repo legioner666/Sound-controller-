@@ -46,7 +46,7 @@ fun connectionLabel(c: ConnectionState): String = when (c) {
     ConnectionState.Starting -> stringResource(R.string.conn_starting)
     ConnectionState.Active -> stringResource(R.string.conn_active)
     is ConnectionState.Reconnecting -> stringResource(R.string.conn_reconnecting, c.attempt)
-    is ConnectionState.Failed -> stringResource(R.string.conn_failed, c.reason)
+    is ConnectionState.Failed -> stringResource(R.string.conn_failed)
 }
 
 /** Honest wording for command results: only a confirmed reply is reported as done. */
@@ -54,11 +54,11 @@ fun connectionLabel(c: ConnectionState): String = when (c) {
 fun outcomeLabel(o: CommandOutcome): String = when (o) {
     is CommandOutcome.Confirmed -> stringResource(R.string.outcome_confirmed)
     CommandOutcome.SentUnconfirmed -> stringResource(R.string.outcome_unconfirmed)
-    is CommandOutcome.Rejected -> stringResource(R.string.outcome_rejected, o.reason)
+    is CommandOutcome.Rejected -> stringResource(R.string.outcome_rejected)
     CommandOutcome.Timeout -> stringResource(R.string.outcome_timeout)
     CommandOutcome.NotConnected -> stringResource(R.string.outcome_not_connected)
-    is CommandOutcome.Unsupported -> stringResource(R.string.outcome_unsupported, o.reason)
-    is CommandOutcome.Failed -> stringResource(R.string.outcome_failed, o.message)
+    is CommandOutcome.Unsupported -> stringResource(R.string.outcome_unsupported)
+    is CommandOutcome.Failed -> stringResource(R.string.outcome_failed)
 }
 
 @Composable

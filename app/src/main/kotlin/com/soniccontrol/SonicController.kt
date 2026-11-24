@@ -18,6 +18,9 @@ import com.soniccontrol.core.devices.ActiveDevice
 import com.soniccontrol.core.devices.AudioLinkState
 import com.soniccontrol.core.devices.BluetoothAvailability
 import com.soniccontrol.core.devices.CommandOutcome
+import com.soniccontrol.core.devices.ConnectionAttempt
+import com.soniccontrol.core.devices.EndpointCandidate
+import com.soniccontrol.core.devices.EndpointResolver
 import com.soniccontrol.core.devices.DeviceCatalog
 import com.soniccontrol.core.devices.DeviceIdentity
 import com.soniccontrol.core.devices.DeviceLink
@@ -84,6 +87,28 @@ class SonicController(
     val experimental: StateFlow<Boolean> = db.settings.map { it.experimental }.stateIn(scope, SharingStarted.Eagerly, false)
     private val fastPair: StateFlow<Boolean> = db.settings.map { it.fastPairListening }.stateIn(scope, SharingStarted.Eagerly, true)
 
+    private val manualEndpoint = MutableStateFlow<String?>(null)
+    private val attemptCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    private val _endpoints = MutableStateFlow<List<EndpointCandidate>>(emptyList())
+    override val endpoints: StateFlow<List<EndpointCandidate>> = _endpoints.asStateFlow()
+    override val selectedEndpoint: StateFlow<String?> = manualEndpoint.asStateFlow()
+    private val _attempts = MutableStateFlow<List<ConnectionAttempt>>(emptyList())
+    override val attempts: StateFlow<List<ConnectionAttempt>> = _attempts.asStateFlow()
+
+    private fun brandHints(name: String?): Set<String> =
+        name?.lowercase()?.split(' ', '-')?.firstOrNull { it.length >= 3 }?.let { setOf(it) } ?: emptySet()
+
+    private fun rankEndpoints(): List<EndpointCandidate> {
+        val id = active.value?.identity ?: return emptyList()
+        val seen = scanner?.observations().orEmpty()
+        val ranked = EndpointResolver.rank(id.address, id.name, brandHints(id.name), seen)
+        // Also list the strongest unmatched advertisers so the user can pick one by hand.
+        val rest = seen.filter { o -> ranked.none { it.observation.address == o.address } && o.connectable }
+            .sortedByDescending { it.rssi }.take(8).map { EndpointCandidate(it, 0, listOf("unmatched")) }
+        return ranked + rest
+    }
+
     private val links = object : LinkFactory {
         override fun identity(address: String): DeviceIdentity? {
             val device = adapter?.let { runCatching { it.getRemoteDevice(address) }.getOrNull() } ?: return null
@@ -103,7 +128,8 @@ class SonicController(
             val s = scanner ?: return null
             val device = runCatching { a.getRemoteDevice(address) }.getOrNull() ?: return null
             val name = runCatching { device.name }.getOrNull()
-            return AndroidDeviceLink(context, a, device, scope, log, clock, s) { s.leTwins(name) }
+            val variant = attemptCounts.merge(address, 1, Int::plus)?.minus(1) ?: 0
+            return AndroidDeviceLink(context, a, device, scope, log, clock, s, brandHints(name), { manualEndpoint.value }, variant)
         }
     }
 
@@ -248,14 +274,54 @@ class SonicController(
 
     override fun probe() = act("probe") { it.probe() }
 
+    override fun scanEndpoints() {
+        val sc = scanner ?: return
+        if (!ready() || !BluetoothPermissions.canScan(context)) return
+        scope.launch { sc.scanFor(8_000); _endpoints.value = rankEndpoints() }
+    }
+
+    override fun selectEndpoint(address: String?) {
+        manualEndpoint.value = address
+        active.value?.identity?.address?.let { a -> sessions.connect(a) }
+    }
+
+    override fun refreshAttempts() {
+        _attempts.value = androidLink()?.attempts.orEmpty()
+        _endpoints.value = rankEndpoints()
+    }
+
     override fun exportReport(): String {
         val redactor = Redactor(
             salt = salt ?: UUID.randomUUID().toString(),
-            knownAddresses = devices.value.map { it.address } + listOfNotNull(active.value?.identity?.address),
+            knownAddresses = devices.value.map { it.address } + listOfNotNull(active.value?.identity?.address) +
+                scanner?.observations().orEmpty().map { it.address } + listOfNotNull(manualEndpoint.value),
             knownNames = devices.value.mapNotNull { it.name } + listOfNotNull(active.value?.identity?.name),
         )
         val a = active.value
-        val device = a?.let {
+        val headsetName = a?.identity?.name
+        val attemptsOut = androidLink()?.attempts.orEmpty().map { t ->
+            mapOf(
+                "channel" to t.channel, "transport" to t.transport, "endpoint" to t.endpointKind, "device" to redactor.address(t.address),
+                "bond" to t.bondState, "durationMs" to t.durationMillis, "gattStatus" to t.status, "newState" to t.newState,
+                "outcome" to t.outcome, "detail" to t.detail,
+            )
+        }
+        val observations = scanner?.observations().orEmpty().map { o ->
+            // Names of other people's devices are not exported; only whether the name matches the headset.
+            val nameMatches = headsetName != null && o.name != null && o.name!!.contains(headsetName, ignoreCase = true)
+            mapOf(
+                "device" to redactor.address(o.address), "named" to (o.name != null), "nameMatchesHeadset" to nameMatches,
+                "rssi" to o.rssi, "connectable" to o.connectable, "fastPairData" to o.hasFastPairData,
+                "services" to o.serviceUuids.map { it.toString() }, "manufacturerIds" to o.manufacturerIds.map { id -> "0x" + id.toString(16) },
+            )
+        }
+        val resolver = rankEndpoints().map { c -> mapOf("device" to redactor.address(c.observation.address), "score" to c.score, "reasons" to c.reasons, "auto" to c.auto) }
+        val diag = mapOf(
+            "connectionAttempts" to attemptsOut, "bleObservations" to observations, "endpointCandidates" to resolver,
+            "manualEndpointSelected" to (manualEndpoint.value != null),
+            "bondState" to a?.identity?.address?.let { addr -> runCatching { adapter?.getRemoteDevice(addr)?.bondState }.getOrNull() }?.let { b -> if (b == BluetoothDevice.BOND_BONDED) "BONDED" else "NOT_BONDED" },
+        )
+        val device = (a?.let {
             mapOf(
                 "catalogModel" to it.headphone.catalogEntry?.fullName,
                 "driver" to it.driverId,
@@ -275,7 +341,7 @@ class SonicController(
                 "notices" to it.headphone.notices.map { n -> n.name },
                 "notes" to it.headphone.notes,
             )
-        }
+        } ?: emptyMap<String, Any?>()) + diag
         return DiagnosticReport.build(appVersion, Build.VERSION.SDK_INT, Build.MODEL, clock(), device, log.events.value, redactor)
     }
 }

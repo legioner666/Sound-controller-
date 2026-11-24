@@ -8,12 +8,16 @@ import android.content.Context
 import com.soniccontrol.core.devices.BluetoothTransport
 import com.soniccontrol.core.devices.ChannelState
 import com.soniccontrol.core.devices.CharacteristicInfo
+import com.soniccontrol.core.devices.ConnectionAttempt
+import com.soniccontrol.core.devices.EndpointResolver
 import com.soniccontrol.core.devices.DeviceLink
 import com.soniccontrol.core.devices.ManufacturerAdvert
 import com.soniccontrol.core.devices.ServiceInfo
 import com.soniccontrol.core.devices.StandardUuids
 import com.soniccontrol.core.devices.TransportState
+import com.soniccontrol.core.diagnostics.DiagnosticEvent
 import com.soniccontrol.core.diagnostics.DiagnosticSink
+import com.soniccontrol.core.diagnostics.EventCategory
 import com.soniccontrol.core.protocol.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -41,7 +45,12 @@ class AndroidDeviceLink(
     private val sink: DiagnosticSink,
     private val clock: () -> Long,
     private val scanner: DeviceScanner,
-    private val leCandidates: () -> List<String>,
+    /** Brand words that often appear in the advertised name of the LE endpoint (e.g. "jbl"). */
+    private val brandHints: Set<String> = emptySet(),
+    /** LE endpoint chosen by the user in the Lab; tried first. */
+    private val manualEndpoint: () -> String? = { null },
+    /** 0 = LE first; odd values try the AUTO transport first, so each reconnect varies the strategy a little. */
+    private val variant: Int = 0,
 ) : DeviceLink {
     override val address: String = device.address
     override val name: String? = runCatching { device.name }.getOrNull()
@@ -64,16 +73,58 @@ class AndroidDeviceLink(
     /** Asks Android to refresh the SDP record cache (standard service discovery, no vendor command). */
     fun refreshSdp() { runCatching { device.fetchUuidsWithSdp() } }
 
-    private suspend fun gatt(): GattClient? = gattLock.withLock {
+    private val attemptLog = java.util.Collections.synchronizedList(ArrayList<ConnectionAttempt>())
+    override val attempts: List<ConnectionAttempt> get() = synchronized(attemptLog) { attemptLog.toList() }
+
+    /** GATT and RFCOMM are opened one after another, never at the same time. */
+    private val channelLock = Mutex()
+
+    private fun record(a: ConnectionAttempt) { synchronized(attemptLog) { attemptLog += a } }
+
+    private data class Step(val device: BluetoothDevice, val kind: String, val transport: Int, val timeout: Long)
+
+    /**
+     * Scan first, then try endpoints in a fixed order with a small budget:
+     * manual endpoint, resolved LE endpoints, then the classic address (LE, AUTO). BR/EDR GATT is the last resort.
+     */
+    private suspend fun plan(): List<Step> {
+        if (scanner.observations().none { it.connectable }) {
+            sink.log(DiagnosticEvent(clock(), EventCategory.SCAN, "scan before connect (6 s)", null, device.address))
+            runCatching { scanner.scanFor(6_000) }
+        }
+        val le = BluetoothDevice.TRANSPORT_LE
+        val auto = BluetoothDevice.TRANSPORT_AUTO
+        val resolved = EndpointResolver.rank(device.address, name, brandHints, scanner.observations())
+            .filter { it.auto && !it.observation.address.equals(device.address, true) }
+            .take(2).mapNotNull { c -> runCatching { adapter.getRemoteDevice(c.observation.address) }.getOrNull() }
+        val manual = manualEndpoint()?.let { runCatching { adapter.getRemoteDevice(it) }.getOrNull() }
+        val steps = ArrayList<Step>()
+        manual?.let { steps += Step(it, "manual-le", le, 8_000) }
+        resolved.forEach { steps += Step(it, "le-endpoint", le, 8_000) }
+        val classicFirst = if (variant % 2 == 0) listOf(le, auto) else listOf(auto, le)
+        classicFirst.forEach { steps += Step(device, "classic-address", it, 6_000) }
+        steps += Step(device, "classic-address", BluetoothDevice.TRANSPORT_BREDR, 5_000)
+        return steps.distinctBy { Triple(it.device.address, it.transport, it.kind) }.take(5)
+    }
+
+    private suspend fun gatt(): GattClient? = channelLock.withLock { gattLock.withLock {
         if (closed) return@withLock null
         gatt?.let { if (it.connected.value) return@withLock it }
         if (gattTried && gatt == null) return@withLock null
         gattTried = true
         _gattState.value = ChannelState.OPENING
-        val candidates = listOf(device) + leCandidates().filter { it != device.address }.mapNotNull { runCatching { adapter.getRemoteDevice(it) }.getOrNull() }
-        for (d in candidates) {
-            val c = GattClient(context, d, sink, clock)
-            if (c.connect()) {
+        val deadline = clock() + 28_000
+        for (step in plan()) {
+            if (closed || clock() > deadline) break
+            val c = GattClient(context, step.device, sink, clock)
+            val r = c.connect(step.transport, step.timeout)
+            record(ConnectionAttempt(
+                channel = "gatt", transport = GattClient.transportName(step.transport), endpointKind = step.kind,
+                address = step.device.address, bondState = GattClient.bondName(step.device.bondState),
+                durationMillis = r.durationMillis, status = r.status, newState = r.newState, outcome = r.outcome,
+                detail = "services=${r.services}",
+            ))
+            if (r.ok) {
                 gatt = c
                 _gattState.value = ChannelState.CONFIRMED // services were discovered
                 scope.launch { c.connected.collect { up -> if (!up && gatt === c) _gattState.value = ChannelState.CLOSED } }
@@ -83,7 +134,7 @@ class AndroidDeviceLink(
         }
         _gattState.value = ChannelState.FAILED
         null
-    }
+    } }
 
     override suspend fun gattServices(): Set<UUID> = gatt()?.services?.map { it.uuid }?.toSet() ?: emptySet()
 
@@ -115,27 +166,44 @@ class AndroidDeviceLink(
         return GattChannelTransport(g, n, w, scope, sink, clock).also { synchronized(transports) { transports += it } }
     }
 
-    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? {
-        if (closed) return null
+    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? = channelLock.withLock {
+        if (closed) return@withLock null
         runCatching { adapter.cancelDiscovery() }
-        if (!_rfcommState.value.isUp) _rfcommState.value = ChannelState.OPENING
-        val t = RfcommTransport.open(device, uuid, writable, scope, sink, clock)
+        if (writable && !_rfcommState.value.isUp) _rfcommState.value = ChannelState.OPENING
+        val started = clock()
+        val result = RfcommTransport.open(device, uuid, writable, scope, sink, clock)
+        record(ConnectionAttempt(
+            channel = if (writable) "rfcomm" else "rfcomm-listen", transport = if (result.insecure) "insecure" else "secure",
+            endpointKind = "classic-address", address = device.address, bondState = GattClient.bondName(device.bondState),
+            durationMillis = clock() - started, status = null, newState = null,
+            outcome = if (result.transport != null) "OK" else result.failure ?: "FAILED", detail = result.detail,
+        ))
+        val t = result.transport
         if (t == null) {
-            if (!openRfcommUp()) _rfcommState.value = ChannelState.FAILED
-            return null
+            // A failed listen-only Fast Pair stream is not the control channel and must not mark RFCOMM as failed.
+            if (writable && !openRfcommUp()) _rfcommState.value = ChannelState.FAILED
+            return@withLock null
         }
         synchronized(transports) { transports += t }
-        _rfcommState.value = ChannelState.OPEN
+        if (writable) _rfcommState.value = ChannelState.OPEN
         scope.launch {
             t.state.collect { st ->
-                if (st != TransportState.Open && !openRfcommUp()) _rfcommState.value = ChannelState.CLOSED
+                if (writable && st != TransportState.Open && !openRfcommUp()) _rfcommState.value = ChannelState.CLOSED
             }
         }
-        return t
+        t
     }
 
     private fun openRfcommUp(): Boolean = synchronized(transports) {
         transports.any { it is RfcommTransport && it.state.value == TransportState.Open }
+    }
+
+    override fun fastPairAdverts(): Flow<ByteArray> {
+        val mine = HashSet<String>().apply { add(device.address) }
+        return scanner.fastPairAdverts.filter { (addr, _) ->
+            addr in mine || EndpointResolver.rank(device.address, name, brandHints, scanner.observations().filter { it.address == addr })
+                .any { it.auto }
+        }.map { it.second }
     }
 
     override fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert> = scanner.adverts(companyId)

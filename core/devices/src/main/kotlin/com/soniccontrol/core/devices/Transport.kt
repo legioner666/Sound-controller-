@@ -78,6 +78,12 @@ interface DeviceLink {
     /** Passive BLE advertisements carrying manufacturer data of [companyId] (used for AirPods battery). */
     fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert>
 
+    /** Connection attempts so far (for diagnostics and honest error messages). */
+    val attempts: List<ConnectionAttempt> get() = emptyList()
+
+    /** Passive Fast Pair advertisement service data that Android attributes to this headset's addresses. */
+    fun fastPairAdverts(): Flow<ByteArray> = kotlinx.coroutines.flow.emptyFlow()
+
     /** Releases every channel this link opened. Safe to call more than once. */
     suspend fun close() {}
 }

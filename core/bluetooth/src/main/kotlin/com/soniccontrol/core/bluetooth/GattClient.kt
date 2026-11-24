@@ -48,6 +48,12 @@ class GattClient(
     @Volatile private var pending: CompletableDeferred<Any?>? = null
     @Volatile private var connectWaiter: CompletableDeferred<Boolean>? = null
 
+    /** Outcome of one [connect] call, recorded for diagnostics. */
+    data class ConnectResult(val ok: Boolean, val status: Int?, val newState: Int?, val durationMillis: Long, val outcome: String, val services: Int)
+
+    @Volatile private var lastStatus: Int? = null
+    @Volatile private var lastNewState: Int? = null
+
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
@@ -73,6 +79,7 @@ class GattClient(
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (isStale(g)) return
             val up = newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS
+            lastStatus = status; lastNewState = newState
             log(EventCategory.GATT, "connection state $newState (status $status)")
             _connected.value = up
             connectWaiter?.complete(up)
@@ -132,28 +139,35 @@ class GattClient(
         }
     }
 
-    /** Connects over LE and discovers services. Returns false on failure or timeout. */
-    suspend fun connect(timeoutMillis: Long = 15_000): Boolean = ops.withLock {
-        if (_connected.value && services.isNotEmpty()) return@withLock true
+    /**
+     * Connects with the given transport and discovers services. Records GATT status, new state, bond state and duration.
+     * A timeout with no callback at all means the address did not answer as a connectable GATT peripheral.
+     */
+    suspend fun connect(transport: Int = BluetoothDevice.TRANSPORT_LE, timeoutMillis: Long = 10_000): ConnectResult = ops.withLock {
+        if (_connected.value && services.isNotEmpty()) return@withLock ConnectResult(true, lastStatus, lastNewState, 0, "ALREADY_CONNECTED", services.size)
+        val started = clock()
         val waiter = CompletableDeferred<Boolean>()
         connectWaiter = waiter
-        log(EventCategory.GATT, "connecting GATT (LE)")
+        lastStatus = null; lastNewState = null
+        log(EventCategory.GATT, "connecting GATT transport=${transportName(transport)} bond=${bondName(device.bondState)} timeout=${timeoutMillis}ms")
         gatt?.close()
-        gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-        val ok = withTimeoutOrNull(timeoutMillis) { waiter.await() } ?: false
+        gatt = device.connectGatt(context, false, callback, transport)
+        val ok = withTimeoutOrNull(timeoutMillis) { waiter.await() }
         connectWaiter = null
-        if (!ok) {
-            log(EventCategory.GATT, "GATT connection failed")
+        if (ok != true) {
+            val outcome = if (ok == null) "NO_CALLBACK_TIMEOUT" else "STATUS_${lastStatus}"
+            log(EventCategory.GATT, "GATT connection failed: $outcome (status=$lastStatus state=$lastNewState)")
             gatt?.close(); gatt = null
-            return@withLock false
+            return@withLock ConnectResult(false, lastStatus, lastNewState, clock() - started, outcome, 0)
         }
-        val g = gatt ?: return@withLock false
+        val g = gatt ?: return@withLock ConnectResult(false, lastStatus, lastNewState, clock() - started, "GATT_OBJECT_GONE", 0)
         @Suppress("UNCHECKED_CAST")
         val discovered = runOp(10_000) { g.discoverServices() } as? List<BluetoothGattService>
         services = discovered ?: emptyList()
         log(EventCategory.GATT, "services discovered: ${services.size}")
         runOp(3_000) { g.requestMtu(247) }
-        services.isNotEmpty()
+        val outcome = if (services.isNotEmpty()) "OK" else "CONNECTED_NO_SERVICES"
+        ConnectResult(services.isNotEmpty(), lastStatus, lastNewState, clock() - started, outcome, services.size)
     }
 
     /** Must be called with [ops] held. */
@@ -226,6 +240,18 @@ class GattClient(
     }
 
     companion object {
+        fun transportName(t: Int) = when (t) {
+            BluetoothDevice.TRANSPORT_LE -> "LE"
+            BluetoothDevice.TRANSPORT_BREDR -> "BREDR"
+            else -> "AUTO"
+        }
+
+        fun bondName(b: Int) = when (b) {
+            BluetoothDevice.BOND_BONDED -> "BONDED"
+            BluetoothDevice.BOND_BONDING -> "BONDING"
+            else -> "NONE"
+        }
+
         fun propertyNames(p: Int): Set<String> = buildSet {
             if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) add("read")
             if (p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) add("write")

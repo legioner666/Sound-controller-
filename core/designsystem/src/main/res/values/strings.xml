@@ -43,6 +43,7 @@
     <string name="source_vendor">headset protocol</string>
     <string name="source_fast_pair">Google Fast Pair</string>
     <string name="source_ble_bas">Bluetooth Battery Service</string>
+    <string name="source_fp_advert">Fast Pair advertisement (experimental)</string>
     <string name="source_apple_advert" formatted="false">Apple advertisement (10% steps)</string>
     <string name="noise_title">Noise control</string>
     <string name="noise_subtitle">Noise cancelling and transparency</string>
@@ -98,14 +99,14 @@
     <string name="catalog_note_planned">Vendor driver planned; universal features now.</string>
     <string name="catalog_note_apple" formatted="false">Battery in 10% steps. Noise control needs Apple’s private channel, unavailable on Android.</string>
     <string name="conn_reconnecting">Reconnecting (attempt %1$d)…</string>
-    <string name="conn_failed">Connection failed: %1$s</string>
+    <string name="conn_failed">Connection failed. See the hint on the home screen.</string>
     <string name="outcome_confirmed">Done — confirmed by the headset</string>
     <string name="outcome_unconfirmed">Sent; this headset gives no confirmation</string>
-    <string name="outcome_rejected">Not sent: %1$s</string>
+    <string name="outcome_rejected">Not sent: the command is blocked for safety</string>
     <string name="outcome_timeout">No answer from the headset</string>
     <string name="outcome_not_connected">Headset not connected</string>
-    <string name="outcome_unsupported">Not available: %1$s</string>
-    <string name="outcome_failed">Failed: %1$s</string>
+    <string name="outcome_unsupported">Not available for this headset</string>
+    <string name="outcome_failed">Could not complete the action. Details are in Lab.</string>
     <string name="feature_connection">Connection status</string>
     <string name="feature_volume">System volume</string>
     <string name="feature_media">Media control</string>
@@ -251,5 +252,38 @@
     <string name="settings_privacy_body">No account, no ads, no analytics and no internet access. Settings, profiles and battery history stay on this phone.</string>
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s</string>
+    <string name="advice_no_endpoint_title">Control channel not found</string>
+    <string name="advice_no_endpoint">The headphones play sound, but they do not answer on any Bluetooth LE address that Sonic Control could find. Many earbuds only open the control channel when the case lid is closed and reopened, or when the manufacturer’s app is closed.</string>
+    <string name="advice_refused_title">Headphones refused the connection</string>
+    <string name="advice_refused">The headphones answered but closed the control connection. Close the manufacturer’s app and try again.</string>
+    <string name="advice_no_services_title">No usable services</string>
+    <string name="advice_no_services">The connection opened, but the headphones expose no services Sonic Control can use.</string>
+    <string name="advice_unavailable_title">No control for these headphones yet</string>
+    <string name="advice_unavailable">Sound and volume work through Android. Features of the headphones themselves need a confirmed protocol. Open Lab to send a diagnostic report.</string>
+    <string name="advice_waiting">Looking for the control channel…</string>
+    <string name="advice_steps">1. Close the manufacturer’s app.
+2. Put the earbuds in the case for 5 seconds, then take them out.
+3. Tap Try again.</string>
+    <string name="action_try_again">Try again</string>
+    <string name="action_open_lab">Open Lab</string>
+    <string name="hero_no_data">No data</string>
+    <string name="hero_status_line">%1$s · %2$s</string>
+    <string name="eq_mini_title">Phone equalizer</string>
+    <string name="eq_mini_on">On · %1$s</string>
+    <string name="eq_mini_off">Off</string>
+    <string name="action_open_eq">Edit</string>
+    <string name="lab_conn_title">Bluetooth connection</string>
+    <string name="lab_conn_scan">Scan LE endpoints</string>
+    <string name="lab_conn_none">No connection attempts recorded yet.</string>
+    <string name="lab_conn_attempt">%1$s %2$s · %3$s → %4$s (%5$d ms)</string>
+    <string name="lab_endpoints_title">LE endpoints found</string>
+    <string name="lab_endpoints_empty">Nothing scanned yet. Tap “Scan LE endpoints” with the earbuds out of the case.</string>
+    <string name="lab_endpoint_line">…%1$s · score %2$d · %3$d dBm</string>
+    <string name="lab_endpoint_use">Use</string>
+    <string name="lab_endpoint_clear">Clear choice</string>
+    <string name="lab_endpoint_note">Choosing an endpoint only changes which address Sonic Control connects to. Nothing is sent to the headphones except standard service discovery.</string>
+    <string name="lab_hci_title">Bluetooth HCI snoop log</string>
+    <string name="lab_hci_body">To learn the real protocol, the owner can record the manufacturer’s app talking to the headphones: Android Settings → Developer options → Enable Bluetooth HCI snoop log, then use the manufacturer’s app for a minute and share the log from a bug report. Details are in docs/HCI_SNOOP.md. Sonic Control never reads this log itself.</string>
+    <string name="link_audio_brief_on">Audio connected</string>
     <string name="settings_licenses">Open-source notices</string>
 </resources>

@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -132,7 +133,7 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                             }
                         },
                         icon = { Icon(t.icon, contentDescription = null) },
-                        label = { Text(stringResource(t.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        label = { Text(stringResource(t.label), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 11.sp) },
                     )
                 }
             }
@@ -141,7 +142,13 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
         Box(Modifier.padding(padding).fillMaxSize()) {
             NavHost(nav, startDestination = NavTab.HOME.route) {
                 composable(NavTab.HOME.route) {
-                    DashboardScreen(controller, container.audio, container.db.settings, onOpenDevices = { nav.navigate(NavTab.DEVICES.route) }, onRequestPermissions = requestPermissions)
+                    DashboardScreen(
+                        controller, controller, container.audio, container.db,
+                        onOpenDevices = { nav.navigate(NavTab.DEVICES.route) },
+                        onOpenEqualizer = { nav.navigate(NavTab.SOUND.route) },
+                        onOpenLab = { nav.navigate(NavTab.LAB.route) },
+                        onRequestPermissions = requestPermissions,
+                    )
                 }
                 composable(NavTab.DEVICES.route) { DevicesScreen(controller, onRequestPermissions = requestPermissions) }
                 composable(NavTab.SOUND.route) {
@@ -197,10 +204,10 @@ private fun outcomeMessage(context: android.content.Context, o: com.soniccontrol
     return when (o) {
         is com.soniccontrol.core.devices.CommandOutcome.Confirmed -> r.getString(R.string.outcome_confirmed)
         com.soniccontrol.core.devices.CommandOutcome.SentUnconfirmed -> r.getString(R.string.outcome_unconfirmed)
-        is com.soniccontrol.core.devices.CommandOutcome.Rejected -> r.getString(R.string.outcome_rejected, o.reason)
+        is com.soniccontrol.core.devices.CommandOutcome.Rejected -> r.getString(R.string.outcome_rejected)
         com.soniccontrol.core.devices.CommandOutcome.Timeout -> r.getString(R.string.outcome_timeout)
         com.soniccontrol.core.devices.CommandOutcome.NotConnected -> r.getString(R.string.outcome_not_connected)
-        is com.soniccontrol.core.devices.CommandOutcome.Unsupported -> r.getString(R.string.outcome_unsupported, o.reason)
-        is com.soniccontrol.core.devices.CommandOutcome.Failed -> r.getString(R.string.outcome_failed, o.message)
+        is com.soniccontrol.core.devices.CommandOutcome.Unsupported -> r.getString(R.string.outcome_unsupported)
+        is com.soniccontrol.core.devices.CommandOutcome.Failed -> r.getString(R.string.outcome_failed)
     }
 }

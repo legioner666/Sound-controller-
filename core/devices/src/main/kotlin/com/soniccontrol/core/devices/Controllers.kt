@@ -84,4 +84,14 @@ interface LabController {
     /** Runs the active driver's read-only protocol probe. Requires experimental features. */
     fun probe()
     fun exportReport(): String
+
+    /** LE endpoints found by scanning, ranked by how likely each is the headset's own GATT endpoint. */
+    val endpoints: StateFlow<List<EndpointCandidate>>
+    /** Endpoint the user chose manually (tried first on the next connection), or null. */
+    val selectedEndpoint: StateFlow<String?>
+    val attempts: StateFlow<List<ConnectionAttempt>>
+    fun scanEndpoints()
+    /** Chooses (or clears with null) the LE endpoint and reconnects the active headset with it. */
+    fun selectEndpoint(address: String?)
+    fun refreshAttempts()
 }

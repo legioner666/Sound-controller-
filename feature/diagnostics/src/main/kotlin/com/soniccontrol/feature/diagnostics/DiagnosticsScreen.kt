@@ -32,6 +32,12 @@ import com.soniccontrol.core.designsystem.SonicScreen
 import com.soniccontrol.core.devices.HeadphoneController
 import com.soniccontrol.core.devices.LabController
 import com.soniccontrol.core.devices.StandardUuids
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.TextButton
 import com.soniccontrol.core.diagnostics.DiagnosticLog
 import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
@@ -44,6 +50,9 @@ fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: 
     val services by lab.services.collectAsStateWithLifecycle()
     val sdp by lab.sdpUuids.collectAsStateWithLifecycle()
     val events by log.events.collectAsStateWithLifecycle()
+    val endpoints by lab.endpoints.collectAsStateWithLifecycle()
+    val chosen by lab.selectedEndpoint.collectAsStateWithLifecycle()
+    val attempts by lab.attempts.collectAsStateWithLifecycle()
     val experimental by experimentalEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var exportResult by remember { mutableStateOf<Int?>(null) }
@@ -81,6 +90,41 @@ fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: 
                     }
                     Text(stringResource(if (experimental) R.string.lab_probe_note else R.string.lab_probe_locked), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            item {
+                SonicCard(title = stringResource(R.string.lab_conn_title)) {
+                    if (attempts.isEmpty()) Text(stringResource(R.string.lab_conn_none), style = MaterialTheme.typography.bodySmall)
+                    attempts.forEach { a ->
+                        Text(
+                            stringResource(R.string.lab_conn_attempt, a.channel, a.transport, a.endpointKind, a.outcome, a.durationMillis.toInt()),
+                            style = MonoStyle,
+                        )
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = lab::scanEndpoints) { Text(stringResource(R.string.lab_conn_scan)) }
+                        OutlinedButton(onClick = lab::refreshAttempts) { Text(stringResource(R.string.action_refresh)) }
+                        if (chosen != null) OutlinedButton(onClick = { lab.selectEndpoint(null) }) { Text(stringResource(R.string.lab_endpoint_clear)) }
+                    }
+                    SectionHeader(stringResource(R.string.lab_endpoints_title))
+                    if (endpoints.isEmpty()) Text(stringResource(R.string.lab_endpoints_empty), style = MaterialTheme.typography.bodySmall)
+                    endpoints.forEach { c ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.lab_endpoint_line, c.observation.address.takeLast(5), c.score, c.observation.rssi), style = MonoStyle)
+                                Text(c.reasons.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { lab.selectEndpoint(c.observation.address) }, enabled = chosen != c.observation.address) {
+                                Text(stringResource(R.string.lab_endpoint_use))
+                            }
+                        }
+                    }
+                    Text(stringResource(R.string.lab_endpoint_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            item {
+                SonicCard(title = stringResource(R.string.lab_hci_title)) {
+                    Text(stringResource(R.string.lab_hci_body), style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (sdp.isNotEmpty()) {

@@ -3,8 +3,8 @@
     <string name="tab_home">Головна</string>
     <string name="tab_devices">Пристрої</string>
     <string name="tab_sound">Звук</string>
-    <string name="tab_lab">Лабораторія</string>
-    <string name="tab_settings">Налаштування</string>
+    <string name="tab_lab">Лабор.</string>
+    <string name="tab_settings">Опції</string>
     <string name="sound_page_noise">Шум</string>
     <string name="sound_page_eq">Еквалайзер</string>
     <string name="sound_page_gestures">Керування</string>
@@ -42,6 +42,7 @@
     <string name="source_vendor">протокол навушників</string>
     <string name="source_fast_pair">Google Fast Pair</string>
     <string name="source_ble_bas">Bluetooth Battery Service</string>
+    <string name="source_fp_advert">оголошення Fast Pair (експериментально)</string>
     <string name="source_apple_advert" formatted="false">оголошення Apple (крок 10%)</string>
     <string name="noise_title">Керування шумом</string>
     <string name="noise_subtitle">Шумозаглушення та прозорість</string>
@@ -97,14 +98,14 @@
     <string name="catalog_note_planned">Драйвер виробника заплановано; зараз — універсальні функції.</string>
     <string name="catalog_note_apple" formatted="false">Заряд з кроком 10%. Керування шумом потребує закритого каналу Apple, недоступного на Android.</string>
     <string name="conn_reconnecting">Повторне підключення (спроба %1$d)…</string>
-    <string name="conn_failed">Помилка підключення: %1$s</string>
+    <string name="conn_failed">Помилка підключення. Дивіться підказку на головному екрані.</string>
     <string name="outcome_confirmed">Готово — навушники підтвердили</string>
     <string name="outcome_unconfirmed">Надіслано; ці навушники не надсилають підтвердження</string>
-    <string name="outcome_rejected">Не надіслано: %1$s</string>
+    <string name="outcome_rejected">Не надіслано: команду заблоковано з міркувань безпеки</string>
     <string name="outcome_timeout">Навушники не відповіли</string>
     <string name="outcome_not_connected">Навушники не підключено</string>
-    <string name="outcome_unsupported">Недоступно: %1$s</string>
-    <string name="outcome_failed">Помилка: %1$s</string>
+    <string name="outcome_unsupported">Недоступно для цих навушників</string>
+    <string name="outcome_failed">Не вдалося виконати дію. Подробиці — у Лабораторії.</string>
     <string name="feature_connection">Статус підключення</string>
     <string name="feature_volume">Системна гучність</string>
     <string name="feature_media">Керування відтворенням</string>
@@ -250,5 +251,38 @@
     <string name="settings_privacy_body">Без облікового запису, реклами, аналітики та доступу до інтернету. Налаштування, профілі та історія заряду залишаються на цьому телефоні.</string>
     <string name="settings_about">Про застосунок</string>
     <string name="settings_version">Версія %1$s</string>
+    <string name="advice_no_endpoint_title">Канал керування не знайдено</string>
+    <string name="advice_no_endpoint">Навушники відтворюють звук, але не відповідають за жодною BLE-адресою, яку знайшов Sonic Control. Багато навушників відкривають канал керування лише після закриття й відкриття кейса або коли закрито застосунок виробника.</string>
+    <string name="advice_refused_title">Навушники відхилили підключення</string>
+    <string name="advice_refused">Навушники відповіли, але закрили канал керування. Закрийте застосунок виробника та спробуйте ще раз.</string>
+    <string name="advice_no_services_title">Немає доступних сервісів</string>
+    <string name="advice_no_services">З’єднання відкрилося, але навушники не надають сервісів, які може використати Sonic Control.</string>
+    <string name="advice_unavailable_title">Керування цими навушниками поки недоступне</string>
+    <string name="advice_unavailable">Звук і гучність працюють через Android. Функції самих навушників потребують підтвердженого протоколу. Відкрийте Лабораторію, щоб надіслати діагностику.</string>
+    <string name="advice_waiting">Пошук каналу керування…</string>
+    <string name="advice_steps">1. Закрийте застосунок виробника.
+2. Покладіть навушники в кейс на 5 секунд і дістаньте.
+3. Натисніть «Спробувати ще раз».</string>
+    <string name="action_try_again">Спробувати ще раз</string>
+    <string name="action_open_lab">Відкрити Лабораторію</string>
+    <string name="hero_no_data">Немає даних</string>
+    <string name="hero_status_line">%1$s · %2$s</string>
+    <string name="eq_mini_title">Еквалайзер телефона</string>
+    <string name="eq_mini_on">Увімкнено · %1$s</string>
+    <string name="eq_mini_off">Вимкнено</string>
+    <string name="action_open_eq">Змінити</string>
+    <string name="lab_conn_title">Bluetooth-з’єднання</string>
+    <string name="lab_conn_scan">Сканувати BLE-адреси</string>
+    <string name="lab_conn_none">Спроб підключення ще не було.</string>
+    <string name="lab_conn_attempt">%1$s %2$s · %3$s → %4$s (%5$d мс)</string>
+    <string name="lab_endpoints_title">Знайдені BLE-адреси</string>
+    <string name="lab_endpoints_empty">Ще не скановано. Натисніть «Сканувати BLE-адреси», коли навушники поза кейсом.</string>
+    <string name="lab_endpoint_line">…%1$s · оцінка %2$d · %3$d дБм</string>
+    <string name="lab_endpoint_use">Обрати</string>
+    <string name="lab_endpoint_clear">Скасувати вибір</string>
+    <string name="lab_endpoint_note">Вибір адреси лише змінює, до якої адреси підключається Sonic Control. Навушникам нічого не надсилається, окрім стандартного пошуку сервісів.</string>
+    <string name="lab_hci_title">Журнал Bluetooth HCI snoop</string>
+    <string name="lab_hci_body">Щоб дізнатися справжній протокол, власник може записати розмову застосунку виробника з навушниками: Налаштування Android → Для розробників → Увімкнути журнал Bluetooth HCI snoop, потім хвилину користуватися застосунком виробника й поділитися журналом із звіту про помилку. Подробиці — у docs/HCI_SNOOP.md. Sonic Control сам цей журнал не читає.</string>
+    <string name="link_audio_brief_on">Аудіо підключено</string>
     <string name="settings_licenses">Ліцензії відкритого коду</string>
 </resources>

@@ -3,7 +3,7 @@
     <string name="tab_home">Start</string>
     <string name="tab_devices">Urządzenia</string>
     <string name="tab_sound">Dźwięk</string>
-    <string name="tab_lab">Laboratorium</string>
+    <string name="tab_lab">Lab</string>
     <string name="tab_settings">Ustawienia</string>
     <string name="sound_page_noise">Hałas</string>
     <string name="sound_page_eq">Korektor</string>
@@ -42,6 +42,7 @@
     <string name="source_vendor">protokół słuchawek</string>
     <string name="source_fast_pair">Google Fast Pair</string>
     <string name="source_ble_bas">Bluetooth Battery Service</string>
+    <string name="source_fp_advert">rozgłoszenie Fast Pair (eksperymentalne)</string>
     <string name="source_apple_advert" formatted="false">rozgłoszenie Apple (co 10%)</string>
     <string name="noise_title">Kontrola hałasu</string>
     <string name="noise_subtitle">Redukcja hałasu i przezroczystość</string>
@@ -97,14 +98,14 @@
     <string name="catalog_note_planned">Sterownik producenta planowany; teraz funkcje uniwersalne.</string>
     <string name="catalog_note_apple" formatted="false">Bateria co 10%. Kontrola hałasu wymaga prywatnego kanału Apple, niedostępnego na Androidzie.</string>
     <string name="conn_reconnecting">Ponowne łączenie (próba %1$d)…</string>
-    <string name="conn_failed">Błąd połączenia: %1$s</string>
+    <string name="conn_failed">Błąd połączenia. Zobacz wskazówkę na ekranie głównym.</string>
     <string name="outcome_confirmed">Gotowe — potwierdzone przez słuchawki</string>
     <string name="outcome_unconfirmed">Wysłano; te słuchawki nie potwierdzają</string>
-    <string name="outcome_rejected">Nie wysłano: %1$s</string>
+    <string name="outcome_rejected">Nie wysłano: polecenie zablokowane ze względów bezpieczeństwa</string>
     <string name="outcome_timeout">Brak odpowiedzi słuchawek</string>
     <string name="outcome_not_connected">Słuchawki niepołączone</string>
-    <string name="outcome_unsupported">Niedostępne: %1$s</string>
-    <string name="outcome_failed">Błąd: %1$s</string>
+    <string name="outcome_unsupported">Niedostępne dla tych słuchawek</string>
+    <string name="outcome_failed">Nie udało się wykonać akcji. Szczegóły w Laboratorium.</string>
     <string name="feature_connection">Stan połączenia</string>
     <string name="feature_volume">Głośność systemowa</string>
     <string name="feature_media">Sterowanie multimediami</string>
@@ -250,5 +251,38 @@
     <string name="settings_privacy_body">Bez konta, reklam, analityki i dostępu do internetu. Ustawienia, profile i historia baterii pozostają na tym telefonie.</string>
     <string name="settings_about">O aplikacji</string>
     <string name="settings_version">Wersja %1$s</string>
+    <string name="advice_no_endpoint_title">Nie znaleziono kanału sterowania</string>
+    <string name="advice_no_endpoint">Słuchawki odtwarzają dźwięk, ale nie odpowiadają na żadnym adresie BLE znalezionym przez Sonic Control. Wiele słuchawek otwiera kanał sterowania dopiero po zamknięciu i otwarciu etui albo po zamknięciu aplikacji producenta.</string>
+    <string name="advice_refused_title">Słuchawki odrzuciły połączenie</string>
+    <string name="advice_refused">Słuchawki odpowiedziały, ale zamknęły kanał sterowania. Zamknij aplikację producenta i spróbuj ponownie.</string>
+    <string name="advice_no_services_title">Brak dostępnych usług</string>
+    <string name="advice_no_services">Połączenie otwarto, ale słuchawki nie udostępniają usług, z których może korzystać Sonic Control.</string>
+    <string name="advice_unavailable_title">Sterowanie tymi słuchawkami jeszcze niedostępne</string>
+    <string name="advice_unavailable">Dźwięk i głośność działają przez Androida. Funkcje samych słuchawek wymagają potwierdzonego protokołu. Otwórz Laboratorium, aby wysłać diagnostykę.</string>
+    <string name="advice_waiting">Szukanie kanału sterowania…</string>
+    <string name="advice_steps">1. Zamknij aplikację producenta.
+2. Włóż słuchawki do etui na 5 sekund i wyjmij.
+3. Naciśnij „Spróbuj ponownie”.</string>
+    <string name="action_try_again">Spróbuj ponownie</string>
+    <string name="action_open_lab">Otwórz Laboratorium</string>
+    <string name="hero_no_data">Brak danych</string>
+    <string name="hero_status_line">%1$s · %2$s</string>
+    <string name="eq_mini_title">Korektor telefonu</string>
+    <string name="eq_mini_on">Włączony · %1$s</string>
+    <string name="eq_mini_off">Wyłączony</string>
+    <string name="action_open_eq">Edytuj</string>
+    <string name="lab_conn_title">Połączenie Bluetooth</string>
+    <string name="lab_conn_scan">Skanuj adresy BLE</string>
+    <string name="lab_conn_none">Brak zapisanych prób połączenia.</string>
+    <string name="lab_conn_attempt">%1$s %2$s · %3$s → %4$s (%5$d ms)</string>
+    <string name="lab_endpoints_title">Znalezione adresy BLE</string>
+    <string name="lab_endpoints_empty">Jeszcze nie skanowano. Naciśnij „Skanuj adresy BLE”, gdy słuchawki są poza etui.</string>
+    <string name="lab_endpoint_line">…%1$s · ocena %2$d · %3$d dBm</string>
+    <string name="lab_endpoint_use">Użyj</string>
+    <string name="lab_endpoint_clear">Wyczyść wybór</string>
+    <string name="lab_endpoint_note">Wybór adresu zmienia tylko to, z którym adresem łączy się Sonic Control. Do słuchawek nie jest wysyłane nic poza standardowym wykrywaniem usług.</string>
+    <string name="lab_hci_title">Dziennik Bluetooth HCI snoop</string>
+    <string name="lab_hci_body">Aby poznać prawdziwy protokół, właściciel może nagrać komunikację aplikacji producenta ze słuchawkami: Ustawienia Androida → Opcje programisty → Włącz dziennik Bluetooth HCI snoop, następnie przez minutę używać aplikacji producenta i udostępnić dziennik z raportu o błędzie. Szczegóły w docs/HCI_SNOOP.md. Sonic Control sam nie czyta tego dziennika.</string>
+    <string name="link_audio_brief_on">Dźwięk połączony</string>
     <string name="settings_licenses">Licencje open source</string>
 </resources>

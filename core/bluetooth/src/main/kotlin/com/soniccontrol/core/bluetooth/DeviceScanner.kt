@@ -10,6 +10,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.ParcelUuid
+import com.soniccontrol.core.devices.BleObservation
 import com.soniccontrol.core.devices.DiscoveredDevice
 import com.soniccontrol.core.devices.DiscoverySource
 import com.soniccontrol.core.devices.ManufacturerAdvert
@@ -40,6 +41,17 @@ class DeviceScanner(
 
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
+
+    private val observed = java.util.concurrent.ConcurrentHashMap<String, BleObservation>()
+    private val fastPairData = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+    private val _fastPairAdverts = kotlinx.coroutines.flow.MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = 64)
+    val fastPairAdverts: Flow<Pair<String, ByteArray>> = _fastPairAdverts
+
+    /** Every advertiser seen in the last [maxAgeMillis], including unnamed ones (the Lab and the endpoint resolver need them). */
+    fun observations(maxAgeMillis: Long = 90_000): List<BleObservation> {
+        val now = clock()
+        return observed.values.filter { now - it.lastSeenMillis <= maxAgeMillis }
+    }
 
     /** Fast Pair model ids seen in advertisements, by address. */
     val fastPairModels = HashMap<String, String>()
@@ -95,6 +107,23 @@ class DeviceScanner(
     private fun onResult(r: ScanResult) {
         val record = r.scanRecord
         val name = record?.deviceName ?: runCatching { r.device.name }.getOrNull()
+        val fpData = record?.getServiceData(FAST_PAIR_UUID)
+        if (observed.size < 300 || observed.containsKey(r.device.address)) {
+            observed[r.device.address] = BleObservation(
+                address = r.device.address,
+                name = name,
+                rssi = r.rssi,
+                serviceUuids = record?.serviceUuids?.map { it.uuid }?.toSet() ?: emptySet(),
+                manufacturerIds = buildSet {
+                    val m = record?.manufacturerSpecificData
+                    if (m != null) for (i in 0 until m.size()) add(m.keyAt(i))
+                },
+                hasFastPairData = fpData != null,
+                connectable = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) r.isConnectable else true,
+                lastSeenMillis = clock(),
+            )
+        }
+        if (fpData != null) { fastPairData[r.device.address] = fpData; _fastPairAdverts.tryEmit(r.device.address to fpData) }
         record?.getServiceData(FAST_PAIR_UUID)?.takeIf { it.size == 3 }?.let {
             fastPairModels[r.device.address] = it.joinToString("") { b -> (b.toInt() and 0xFF).toString(16).padStart(2, '0') }
         }
@@ -110,6 +139,14 @@ class DeviceScanner(
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         runCatching { scanner.startScan(null, settings, scanCallback) }.onSuccess { _scanning.value = true; log("BLE scan started") }
             .onFailure { log("scan start failed: ${it.message}") }
+    }
+
+    /** Runs a scan for [millis] when none is active, so connection planning can see LE endpoints. Returns when done. */
+    suspend fun scanFor(millis: Long) {
+        val wasScanning = _scanning.value
+        if (!wasScanning) startScan()
+        kotlinx.coroutines.delay(millis)
+        if (!wasScanning) stopScan()
     }
 
     fun stopScan() {

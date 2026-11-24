@@ -1,5 +1,16 @@
 # Журнал змін
 
+
+## 0.3 — TASK 003 (after physical test on JBL Tune Beam 2)
+- Scan before connect; LE endpoints ranked by name twin, Fast Pair data, signal and connectability (never by name alone).
+- Ordered, budgeted attempts: manual endpoint → resolved LE endpoints → classic address LE/AUTO → BR/EDR last. GATT and RFCOMM open one after another.
+- RFCOMM: secure then insecure socket; errors classified (remote closed, timeout, busy, …). A failed Fast Pair listen-only stream no longer marks RFCOMM as failed.
+- Diagnostics format v3: every attempt (transport, GATT status, new state, bond, duration), redacted BLE observations, endpoint ranking.
+- Passive Fast Pair advertisement battery (strict parser, Experimental, only when the advert can be attributed to the headset).
+- Lab: scan and choose the LE endpoint by hand, attempt list, HCI snoop instructions (docs/HCI_SNOOP.md).
+- Home screen: compact panel with earbuds drawing, three battery gauges, noise quick switch, mini EQ, human-readable recovery hints; technical statuses live in Lab.
+- Fixed one-line names, bottom bar truncation, English command errors (now localised, details only in Lab).
+
 ## 0.2 — TASK 002 (аудит GPT першого MVP)
 
 ### P0

@@ -4,6 +4,17 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import com.soniccontrol.core.database.EqProfile
+import com.soniccontrol.core.database.SonicDatabase
+import com.soniccontrol.core.designsystem.HeadphoneHero
+import com.soniccontrol.core.designsystem.MiniEqCurve
+import com.soniccontrol.core.designsystem.adviceBody
+import com.soniccontrol.core.designsystem.adviceTitle
+import com.soniccontrol.core.devices.ConnectionAdvice
+import com.soniccontrol.core.devices.ConnectionAdvisor
+import com.soniccontrol.core.devices.ConnectionState
+import com.soniccontrol.core.devices.LabController
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
@@ -57,18 +68,25 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable
 fun DashboardScreen(
     controller: HeadphoneController,
+    lab: LabController,
     audio: AudioController,
-    settings: StateFlow<AppSettings>,
+    db: SonicDatabase,
     onOpenDevices: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenLab: () -> Unit,
     onRequestPermissions: () -> Unit,
 ) {
     val active by controller.active.collectAsStateWithLifecycle()
     val availability by controller.availability.collectAsStateWithLifecycle()
-    val appSettings by settings.collectAsStateWithLifecycle()
+    val appSettings by db.settings.collectAsStateWithLifecycle()
+    val profiles by db.eqProfiles.collectAsStateWithLifecycle()
+    val attempts by lab.attempts.collectAsStateWithLifecycle()
     val volume by audio.volume.collectAsStateWithLifecycle()
     LaunchedEffect(active?.identity?.address) { audio.refreshVolume() }
+    val links = active?.links
+    LaunchedEffect(links?.gatt, links?.rfcomm, links?.control, active?.connection) { lab.refreshAttempts() }
 
-    SonicScreen(title = stringResource(R.string.app_name), subtitle = stringResource(R.string.dashboard_subtitle)) {
+    SonicScreen(title = stringResource(R.string.app_name), subtitle = null) {
         item { AvailabilityBanner(availability, onRequestPermissions) }
         val device = active
         if (device == null) {
@@ -79,20 +97,39 @@ fun DashboardScreen(
                 ) { Button(onClick = onOpenDevices) { Text(stringResource(R.string.action_find_headphones)) } }
             }
         } else {
-            item { DeviceHeader(device, onRefresh = controller::refresh) }
-            item { BatteryCard(device.headphone.battery) }
+            item {
+                HeadphoneHero(
+                    name = device.headphone.displayName,
+                    status = stringResource(R.string.hero_status_line, connectionBrief(device), controlSummary(device.links)),
+                    battery = device.headphone.battery,
+                )
+            }
+            val advice = ConnectionAdvisor.advise(attempts, device.links)
+            if (advice != ConnectionAdvice.NONE && device.connection !is ConnectionState.Idle) {
+                item {
+                    SonicCard(title = adviceTitle(advice)) {
+                        Text(adviceBody(advice), style = MaterialTheme.typography.bodyMedium)
+                        if (advice != ConnectionAdvice.WAITING) {
+                            Text(stringResource(R.string.advice_steps), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { controller.connect(device.identity.address) }) { Text(stringResource(R.string.action_try_again)) }
+                                OutlinedButton(onClick = onOpenLab) { Text(stringResource(R.string.action_open_lab)) }
+                            }
+                        }
+                    }
+                }
+            }
+            device.headphone.notices.forEach { n -> item { Banner(noticeLabel(n), BannerKind.INFO) } }
             if (device.headphone.noiseModes.isNotEmpty()) {
                 item {
-                    val support = device.headphone.capabilities.of(Feature.NOISE_CONTROL)
                     val usable = device.headphone.capabilities.usable(Feature.NOISE_CONTROL, appSettings.experimental)
-                    SonicCard(title = stringResource(R.string.noise_title), trailing = { StatusBadge(support.status) }) {
+                    SonicCard(title = stringResource(R.string.noise_title)) {
                         if (usable) {
                             val current = device.headphone.noise?.mode
                             SegmentedTabs(device.headphone.noiseModes, current ?: device.headphone.noiseModes.first(), { noiseLabel(it) }) {
                                 controller.setNoiseMode(it)
                             }
                             if (current == null) Text(stringResource(R.string.noise_state_unknown), style = MaterialTheme.typography.bodySmall)
-                            device.headphone.noise?.let { SourceNote(it.source, it.timestampMillis) }
                         } else {
                             Text(stringResource(R.string.noise_locked_experimental), style = MaterialTheme.typography.bodySmall)
                         }
@@ -101,7 +138,19 @@ fun DashboardScreen(
             }
         }
         item {
-            SonicCard(title = stringResource(R.string.media_title)) {
+            val profile = profiles.firstOrNull { it.id == appSettings.eqProfileId } ?: profiles.firstOrNull()
+            SonicCard(title = stringResource(R.string.eq_mini_title), trailing = { OutlinedButton(onClick = onOpenEqualizer) { Text(stringResource(R.string.action_open_eq)) } }) {
+                if (profile != null) {
+                    MiniEqCurve(profile.gainsDb, EqProfile.MAX_DB, Modifier.fillMaxWidth().height(56.dp))
+                    Text(
+                        if (appSettings.systemEq) stringResource(R.string.eq_mini_on, profile.name) else stringResource(R.string.eq_mini_off),
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        item {
+            SonicCard {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = audio::previous) { Icon(Icons.Filled.SkipPrevious, stringResource(R.string.media_previous)) }
                     Spacer(Modifier.width(12.dp))
@@ -116,10 +165,15 @@ fun DashboardScreen(
                     valueRange = 0f..volume.max.coerceAtLeast(1).toFloat(),
                     steps = (volume.max - 1).coerceAtLeast(0),
                 )
-                Text(stringResource(R.string.volume_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
+}
+
+@Composable
+private fun connectionBrief(d: ActiveDevice): String = when (d.links.audio) {
+    com.soniccontrol.core.devices.AudioLinkState.CONNECTED -> stringResource(R.string.link_audio_brief_on)
+    else -> connectionLabel(d.connection)
 }
 
 @Composable
@@ -129,33 +183,6 @@ fun AvailabilityBanner(a: BluetoothAvailability, onRequestPermissions: () -> Uni
         BluetoothAvailability.OFF -> Banner(stringResource(R.string.bt_off), BannerKind.WARNING)
         BluetoothAvailability.NO_PERMISSION -> Banner(stringResource(R.string.bt_no_permission), BannerKind.WARNING, stringResource(R.string.action_allow), onRequestPermissions)
         BluetoothAvailability.UNAVAILABLE -> Banner(stringResource(R.string.bt_unavailable), BannerKind.ERROR)
-    }
-}
-
-@Composable
-private fun DeviceHeader(device: ActiveDevice, onRefresh: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    SonicCard(modifier = Modifier.animateContentSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Headphones, null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(device.headphone.displayName, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    connectionLabel(device.connection) + " · " + controlSummary(device.links),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            OutlinedButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_refresh)) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            LevelBadge(device.headphone.capabilities.level)
-            Text(device.headphone.protocol, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        LinkStatusRows(device.links)
-        if (device.headphone.busy) Text(stringResource(R.string.working), style = MaterialTheme.typography.labelSmall)
-    }
-    device.headphone.notices.forEach { Banner(noticeLabel(it), BannerKind.INFO) }
     }
 }
 

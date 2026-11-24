@@ -59,6 +59,40 @@ object FastPair {
         if (m.group == GROUP_DEVICE_INFO && m.code == CODE_MODEL_ID) m.payload.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') } else null
 }
 
+/**
+ * Passive Fast Pair "not discoverable" advertisement (service data of 0xFE2C) with the optional battery extension:
+ * header | account-key filter (len<<4 | 0) + bytes | salt (len<<4 | 1) + bytes | battery (count<<4 | 3 show UI, 4 hide UI) + values.
+ * Parsing is strict: anything malformed returns null, so a wrong frame can never show a made-up battery level.
+ */
+object FastPairAdvert {
+    fun parseBattery(data: ByteArray, now: Long): BatteryStatus? {
+        if (data.size < 4 || data.size > 40) return null
+        var i = 1 // byte 0: version / flags
+        fun field(): Pair<Int, Int>? {
+            if (i >= data.size) return null
+            val b = data[i].toInt() and 0xFF
+            i++
+            return (b shr 4) to (b and 0x0F)
+        }
+        val (fLen, fType) = field() ?: return null
+        if (fType != 0 || fLen == 0 || i + fLen > data.size) return null
+        i += fLen
+        val (sLen, sType) = field() ?: return null
+        if (sType != 1 || sLen == 0 || i + sLen > data.size) return null
+        i += sLen
+        val (count, type) = field() ?: return null
+        if (type != 3 && type != 4) return null
+        if (count !in 1..3 || i + count != data.size) return null
+        fun level(k: Int): BatteryLevel {
+            val raw = data[i + k].toInt() and 0xFF
+            val v = raw and 0x7F
+            return if (v == 0x7F || v > 100) BatteryLevel(null) else BatteryLevel(v, charging = (raw and 0x80) != 0)
+        }
+        return if (count == 1) BatteryStatus(single = level(0), source = DataSource.FAST_PAIR_ADVERT, timestampMillis = now)
+        else BatteryStatus(left = level(0), right = level(1), case = if (count == 3) level(2) else null, source = DataSource.FAST_PAIR_ADVERT, timestampMillis = now)
+    }
+}
+
 object BatteryMerge {
     private const val PER_COMPONENT_GRACE_MILLIS = 5 * 60_000L
 

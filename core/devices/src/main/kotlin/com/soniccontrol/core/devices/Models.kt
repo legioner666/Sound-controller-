@@ -23,6 +23,7 @@ enum class DataSource {
     FAST_PAIR_STREAM,
     BLE_BATTERY_SERVICE,
     APPLE_CONTINUITY_ADVERT,
+    FAST_PAIR_ADVERT,
 }
 
 /** One battery component. [percent] null = the device said "no reading" (e.g. earbud docked). */

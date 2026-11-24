@@ -25,3 +25,13 @@
 
 \* Заряд показується лише якщо навушники надають Fast Pair Message Stream або Bluetooth Battery Service.
 Universal-функції (статус, гучність, медіаклавіші, таймер сну) — **B** для всіх пристроїв.
+
+
+## Physical test notes (v0.2.2)
+- **JBL Tune Beam 2** (not Tune Beam 3) was the device actually tested. Audio, AVRCP and volume work through Android.
+- SDP showed A2DP, AVRCP, Hands-Free and the Google Fast Pair Message Stream only. The Fast Pair stream is a Google
+  service, **not** a JBL control protocol, and is never counted as a control channel.
+- GATT on the classic address timed out (no callback at all in 15 s) and the Fast Pair stream closed immediately.
+  Interpretation: the classic address does not expose a connectable GATT server; the LE endpoint (if any) uses another address.
+  v0.3 scans first, ranks LE endpoints by several signs, tries LE/AUTO/BR-EDR in order and records every attempt in diagnostics v3.
+- The H-AA stack assignment of Tune Beam 2 in the catalog comes from earlier desk research and is **unverified**; no model is Verified.

@@ -85,13 +85,14 @@ abstract class BaseDriverSession(
     /** Standard/vendor-pushed sources are passive reads; vendor protocol readings carry the driver's own status. */
     protected open fun statusFor(source: DataSource): SupportStatus = when (source) {
         DataSource.BLE_BATTERY_SERVICE, DataSource.FAST_PAIR_STREAM -> SupportStatus.SUPPORTED
-        DataSource.APPLE_CONTINUITY_ADVERT -> SupportStatus.EXPERIMENTAL
+        DataSource.APPLE_CONTINUITY_ADVERT, DataSource.FAST_PAIR_ADVERT -> SupportStatus.EXPERIMENTAL
         DataSource.VENDOR_PROTOCOL -> SupportStatus.SUPPORTED
     }
 
     /** Starts the passive battery sources. Safe for any device: nothing is written to the headset. */
     protected fun startUniversalSources() {
         launch { readDeviceInformation(); readBleBatteryService() }
+        launch { listenFastPairAdverts() }
         if (env.fastPairListening.value) launch { listenFastPair() }
     }
 
@@ -117,6 +118,16 @@ abstract class BaseDriverSession(
         if (pct > 100) return
         log(EventCategory.RX, "BLE Battery Service: $pct%", value)
         acceptBattery(BatteryStatus(single = BatteryLevel(pct), source = DataSource.BLE_BATTERY_SERVICE, timestampMillis = env.clock()))
+    }
+
+    /** Passive: parses Fast Pair advertisements already in the air. Nothing is sent. */
+    private suspend fun listenFastPairAdverts() {
+        link.fastPairAdverts().collect { data ->
+            FastPairAdvert.parseBattery(data, env.clock())?.let {
+                log(EventCategory.RX, "Fast Pair advertisement battery", data)
+                acceptBattery(it)
+            }
+        }
     }
 
     private suspend fun listenFastPair() {

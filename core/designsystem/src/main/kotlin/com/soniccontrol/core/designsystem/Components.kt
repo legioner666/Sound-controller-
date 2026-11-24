@@ -210,6 +210,7 @@ fun sourceLabel(source: DataSource): String = stringResource(
         DataSource.FAST_PAIR_STREAM -> R.string.source_fast_pair
         DataSource.BLE_BATTERY_SERVICE -> R.string.source_ble_bas
         DataSource.APPLE_CONTINUITY_ADVERT -> R.string.source_apple_advert
+        DataSource.FAST_PAIR_ADVERT -> R.string.source_fp_advert
     },
 )
 

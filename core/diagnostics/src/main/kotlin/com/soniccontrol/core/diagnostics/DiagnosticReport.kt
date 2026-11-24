@@ -7,7 +7,7 @@ import com.soniccontrol.core.protocol.Json
  * every string, hex dump and value goes through [Redactor]. The user decides whether to share the file.
  */
 object DiagnosticReport {
-    const val FORMAT_VERSION = 2
+    const val FORMAT_VERSION = 3
 
     fun build(
         appVersion: String,
