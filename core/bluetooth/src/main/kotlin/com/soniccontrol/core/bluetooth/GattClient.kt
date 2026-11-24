@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
 import android.os.Build
 import com.soniccontrol.core.devices.StandardUuids
@@ -59,8 +60,18 @@ class GattClient(
     private fun log(cat: EventCategory, msg: String, hex: String? = null) =
         sink.log(DiagnosticEvent(clock(), cat, msg, hex, device.address))
 
+    /** Callbacks from a BluetoothGatt that was already closed or replaced are ignored. */
+    private fun isStale(g: BluetoothGatt): Boolean {
+        val current = gatt
+        if (current == null && connectWaiter != null) return false // connectGatt has not returned yet
+        if (current != null && g === current) return false
+        log(EventCategory.GATT, "ignored callback from a stale GATT object")
+        return true
+    }
+
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (isStale(g)) return
             val up = newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS
             log(EventCategory.GATT, "connection state $newState (status $status)")
             _connected.value = up
@@ -71,20 +82,24 @@ class GattClient(
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (isStale(g)) return
             pending?.complete(if (status == BluetoothGatt.GATT_SUCCESS) g.services else null)
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            if (isStale(g)) return
             log(EventCategory.GATT, "MTU $mtu (status $status)")
             pending?.complete(mtu)
         }
 
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+            if (isStale(g)) return
             pending?.complete(if (status == BluetoothGatt.GATT_SUCCESS) value else null)
         }
 
         @Deprecated("Android 12 and lower")
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            if (isStale(g)) return
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 @Suppress("DEPRECATION")
                 pending?.complete(if (status == BluetoothGatt.GATT_SUCCESS) c.value?.copyOf() else null)
@@ -92,19 +107,23 @@ class GattClient(
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            if (isStale(g)) return
             pending?.complete(status == BluetoothGatt.GATT_SUCCESS)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            if (isStale(g)) return
             pending?.complete(status == BluetoothGatt.GATT_SUCCESS)
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+            if (isStale(g)) return
             _notifications.tryEmit(Notification(c.service.uuid, c.uuid, value.copyOf()))
         }
 
         @Deprecated("Android 12 and lower")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            if (isStale(g)) return
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 @Suppress("DEPRECATION")
                 val v = c.value?.copyOf() ?: return
@@ -166,7 +185,7 @@ class GattClient(
         val type = if (noResponse) BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE else BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         val r = runOp(5_000) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                g.writeCharacteristic(c, value, type) == BluetoothGatt.GATT_SUCCESS
+                g.writeCharacteristic(c, value, type) == BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 run { c.writeType = type; c.value = value; g.writeCharacteristic(c) }
@@ -186,7 +205,7 @@ class GattClient(
         val value = if (indicate) BluetoothGattDescriptor.ENABLE_INDICATION_VALUE else BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
         val r = runOp(5_000) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                g.writeDescriptor(d, value) == BluetoothGatt.GATT_SUCCESS
+                g.writeDescriptor(d, value) == BluetoothStatusCodes.SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 run { d.value = value; g.writeDescriptor(d) }

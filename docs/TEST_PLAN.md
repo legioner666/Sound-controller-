@@ -13,6 +13,10 @@
 | `drivers:xiaomi` | кадри GAIA, заборона значення 0x04 |
 | `drivers:apple` | парсер proximity-оголошення |
 | `core:database` | історія заряду, прогноз автономності, кодеки профілів |
+| `core:audio` | еквалайзер телефона: ніколи не гучніше (headroom), баланс лише послаблює, межі смуг |
+| `core:devices` — `SessionManager` | швидке перемикання пристроїв, disconnect під час повільного старту, відкидання застарілих станів і результатів, повтори з backoff і їх скасування, втрата/повернення аудіо, вимкнений авто-reconnect, закриття link і сесій |
+| драйвери — інтеграційні | фейкові навушники JBL (H-AA, Protocol 4, RACE), Sony XM5 (ACK, seq, NTFY), Nothing, Xiaomi: зміна режиму підтверджується фактичним станом; ACK без зміни = помилка; нерозпізнані кадри не визначають протокол і не підтверджують канал |
+| guards / парсери — фаз | 20 000 випадкових кадрів на драйвер: жоден не проходить guard, крім точних кадрів allowlist; усічені/подовжені кадри відхиляються; парсери не падають |
 
 Результати останнього прогону — у CI (артефакт `test-reports`) та в розділі «Результати» нижче.
 
@@ -33,20 +37,23 @@
 
 ## Результати
 
-### Локальний прогін 2026-11-24 (JDK 21, Gradle 8.14.3)
+### Прогін 2026-11-24, TASK 002 (JDK 21, Gradle 8.14.3)
 
 | Модуль | Тестів | Помилок |
 |---|---|---|
 | core:protocol | 6 | 0 |
-| core:diagnostics | 3 | 0 |
-| core:devices | 12 | 0 |
+| core:diagnostics | 6 | 0 |
+| core:devices | 22 | 0 |
 | core:database | 4 | 0 |
-| drivers:jbl | 11 | 0 |
-| drivers:sony | 6 | 0 |
-| drivers:nothing | 4 | 0 |
-| drivers:xiaomi | 3 | 0 |
+| core:audio | 3 | 0 |
+| drivers:jbl | 22 | 0 |
+| drivers:sony | 8 | 0 |
+| drivers:nothing | 7 | 0 |
+| drivers:xiaomi | 6 | 0 |
 | drivers:apple | 3 | 0 |
-| **Разом** | **52** | **0** |
+| **Разом** | **87** | **0** |
 
-`:app:assembleDebug` — успішно. Фізичне тестування: ще не проводилось.
-Наступні прогони — у GitHub Actions (артефакт `test-reports`).
+- Android Lint (`:app:lintDebug`, `checkDependencies = true`, усі модулі): **0 помилок, 0 попереджень**. У CI lint блокує збірку.
+- `:app:assembleDebug` — успішно.
+- Фізичне тестування на JBL Tune Beam 3 — ще не проводилось; жодна модель не має статусу Verified.
+- CI-прогони та SHA-256 тестових APK — у релізі [`test-build`](https://github.com/legioner666/Sound-controller-/releases/tag/test-build).

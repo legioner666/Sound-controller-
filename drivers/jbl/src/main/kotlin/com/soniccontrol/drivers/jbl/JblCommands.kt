@@ -10,8 +10,8 @@ import com.soniccontrol.core.protocol.u8
 
 /** Every frame the JBL driver can build. Anything else is refused by [JblGuard]. */
 object JblCommands {
-    private fun p3(match: (JblProtocol.P3.Frame) -> Boolean) = ResponseMatcher { b -> JblProtocol.P3.parse(b)?.let(match) ?: false }
-    private fun race(match: (JblProtocol.Race.Frame) -> Boolean) = ResponseMatcher { b -> JblProtocol.Race.parse(b)?.let(match) ?: false }
+    private fun p3(match: (JblProtocol.P3.Frame) -> Boolean) = ResponseMatcher { b -> JblProtocol.P3.validate(b)?.let(match) ?: false }
+    private fun race(match: (JblProtocol.Race.Frame) -> Boolean) = ResponseMatcher { b -> JblProtocol.Race.validate(b)?.let(match) ?: false }
 
     fun p3Version(s: SupportStatus) = DeviceCommand("jbl.aa.version", CommandKind.READ, s, JblProtocol.P3.versionGet(), 2000,
         p3(JblProtocol.P3::isVersionReply))
@@ -24,8 +24,12 @@ object JblCommands {
     fun p3ModeSet(s: SupportStatus, mode: NoiseMode) = DeviceCommand("jbl.aa.mode.set.${mode.name.lowercase()}", CommandKind.WRITE, s,
         JblProtocol.P3.listeningModeSet(mode), 2000, p3 { JblProtocol.P3.parseListeningMode(it) == mode })
 
+    /** Reply must be a valid Protocol 4 packet carrying at least one requested id (or the first packet of a multi-packet reply). */
     fun p4Get(s: SupportStatus, ids: List<Int>) = DeviceCommand("jbl.p4.get.${ids.joinToString("-")}", CommandKind.READ, s,
-        JblProtocol.P4.getDeviceInfo(ids), 2500, ResponseMatcher { JblProtocol.P4.looksLikeP4(it) })
+        JblProtocol.P4.getDeviceInfo(ids), 2500, ResponseMatcher { b ->
+            val p = JblProtocol.P4.validate(b) ?: return@ResponseMatcher false
+            if (p.count > 1) p.index == 0 else JblProtocol.P4.parseTlv(p.payload).keys.any { it in ids }
+        })
 
     fun raceModeGet(s: SupportStatus) = DeviceCommand("jbl.race.mode.get", CommandKind.READ, s, JblProtocol.Race.modeGet(), 1500,
         race { it.type == JblProtocol.Race.TYPE_REPLY && JblProtocol.Race.isModeReport(it) })

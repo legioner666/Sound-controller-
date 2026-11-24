@@ -19,10 +19,15 @@ data class DiscoveredDevice(
     val lastSeenMillis: Long = 0,
 )
 
+/**
+ * Lifecycle of the driver session. [Active] only means the session runs; what is actually reachable
+ * is in [LinkStatus]. The UI never shows "connected" from this alone.
+ */
 sealed interface ConnectionState {
     data object Idle : ConnectionState
-    data object Connecting : ConnectionState
-    data object Connected : ConnectionState
+    data object Starting : ConnectionState
+    data object Active : ConnectionState
+    /** Waiting for Android to reconnect the headset, or retrying a failed start. */
     data class Reconnecting(val attempt: Int, val inMillis: Long) : ConnectionState
     data class Failed(val reason: String) : ConnectionState
 }
@@ -44,6 +49,7 @@ data class ActiveDevice(
     val match: DriverMatch,
     val connection: ConnectionState,
     val headphone: HeadphoneState,
+    val links: LinkStatus = LinkStatus(),
 )
 
 /** Short user-facing result of an action; [success] is true only for confirmed results. */

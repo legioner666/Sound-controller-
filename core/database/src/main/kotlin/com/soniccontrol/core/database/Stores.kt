@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.soniccontrol.core.devices.BatteryStatus
@@ -26,6 +27,11 @@ data class AppSettings(
     val fastPairListening: Boolean = true,
     val lastDevice: String? = null,
     val onboardingDone: Boolean = false,
+    /** Phone (software) equaliser, independent of the headphones. */
+    val systemEq: Boolean = false,
+    val eqProfileId: String = "flat",
+    /** -1 left … +1 right. */
+    val balance: Float = 0f,
 )
 
 /**
@@ -43,6 +49,9 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
         val eqProfiles = stringPreferencesKey("eq_profiles")
         val batteryHistory = stringPreferencesKey("battery_history")
         val salt = stringPreferencesKey("anon_salt")
+        val systemEq = booleanPreferencesKey("system_eq")
+        val eqProfile = stringPreferencesKey("eq_profile_id")
+        val balance = floatPreferencesKey("balance")
     }
 
     val settings: StateFlow<AppSettings> = context.store.data.map { p ->
@@ -53,6 +62,9 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
             fastPairListening = p[K.fastPair] ?: true,
             lastDevice = p[K.lastDevice],
             onboardingDone = p[K.onboarding] ?: false,
+            systemEq = p[K.systemEq] ?: false,
+            eqProfileId = p[K.eqProfile] ?: "flat",
+            balance = (p[K.balance] ?: 0f).coerceIn(-1f, 1f),
         )
     }.stateIn(scope, SharingStarted.Eagerly, AppSettings())
 
@@ -70,6 +82,9 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
     suspend fun setFastPairListening(v: Boolean) = context.store.edit { it[K.fastPair] = v }
     suspend fun setLastDevice(address: String?) = context.store.edit { if (address == null) it.remove(K.lastDevice) else it[K.lastDevice] = address }
     suspend fun setOnboardingDone() = context.store.edit { it[K.onboarding] = true }
+    suspend fun setSystemEq(v: Boolean) = context.store.edit { it[K.systemEq] = v }
+    suspend fun setEqProfile(id: String) = context.store.edit { it[K.eqProfile] = id }
+    suspend fun setBalance(v: Float) = context.store.edit { it[K.balance] = v.coerceIn(-1f, 1f) }
 
     suspend fun saveProfiles(list: List<EqProfile>) = context.store.edit { it[K.eqProfiles] = Codecs.encodeProfiles(list) }
 

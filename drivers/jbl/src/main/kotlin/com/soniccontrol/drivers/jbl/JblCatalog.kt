@@ -2,6 +2,7 @@ package com.soniccontrol.drivers.jbl
 
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.CatalogNote
 import com.soniccontrol.core.devices.Feature
 import com.soniccontrol.core.devices.SupportStatus
 
@@ -116,10 +117,10 @@ object JblCatalog {
             protocol = protocolName(m.stack),
             features = features(m),
             aliases = listOf("JBL ${m.name}", "JBL ${m.name.removeSuffix(" TWS")}").distinct(),
-            notes = when {
-                m.stack == JblStack.UNIDENTIFIED -> "Priority test device. Open the Lab and run the protocol probe."
-                m.name in confirmedOnHardware -> "Protocol confirmed on physical hardware in public research."
-                else -> ""
+            note = when {
+                m.stack == JblStack.UNIDENTIFIED -> CatalogNote.PRIORITY_TEST_DEVICE
+                m.name in confirmedOnHardware -> CatalogNote.CONFIRMED_ON_HARDWARE
+                else -> null
             },
         )
     }

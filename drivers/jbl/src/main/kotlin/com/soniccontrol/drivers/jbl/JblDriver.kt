@@ -4,6 +4,8 @@ import com.soniccontrol.core.devices.BaseDriverSession
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.BluetoothTransport
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.ChannelState
+import com.soniccontrol.core.devices.Notice
 import com.soniccontrol.core.devices.CommandExecutor
 import com.soniccontrol.core.devices.CommandOutcome
 import com.soniccontrol.core.devices.DataSource
@@ -23,7 +25,6 @@ import com.soniccontrol.core.devices.NoiseStatus
 import com.soniccontrol.core.devices.StandardUuids
 import com.soniccontrol.core.devices.SupportStatus
 import com.soniccontrol.core.diagnostics.EventCategory
-import com.soniccontrol.core.protocol.u8
 
 class JblDriver : HeadphoneDriver {
     override val id = JblCatalog.DRIVER_ID
@@ -89,7 +90,11 @@ internal class JblSession(
             JblProtocol.HARMAN_SERVICE in services -> openHarman()
             JblProtocol.AIROHA_RACE_RFCOMM in sdp || services.any { it.toString().startsWith(JblProtocol.AIROHA_GATT_PREFIX) } -> openRace()
             else -> update {
-                it.copy(protocol = "No JBL control channel found", notes = it.notes + "Battery from standard sources only.")
+                it.copy(
+                    protocol = "No JBL control channel found",
+                    control = ChannelState.UNAVAILABLE,
+                    notices = it.notices + Notice.NO_CONTROL_CHANNEL + Notice.STANDARD_BATTERY_ONLY,
+                )
             }
         }
     }
@@ -97,10 +102,16 @@ internal class JblSession(
     // ---------------- Harman GATT (H-AA / Protocol 4) ----------------
 
     private suspend fun openHarman() {
+        controlOpening()
         val raw = link.openGattChannel(JblProtocol.HARMAN_SERVICE, JblProtocol.HARMAN_NOTIFY, JblProtocol.HARMAN_WRITE)
             ?: link.openGattChannel(JblProtocol.HARMAN_SERVICE)
-            ?: return update { it.copy(protocol = "Harman service present but not usable") }
+        if (raw == null) {
+            controlFailed()
+            update { it.copy(protocol = "Harman service present but the channel could not be opened") }
+            return
+        }
         val t = track(FramedTransport(raw, env.scope, env.clock, JblProtocol::splitHarman))
+        controlOpened(t)
         harman = t
         harmanExec = CommandExecutor(t, JblGuard, { env.experimentalEnabled.value }, env.sink, env.clock, link.address)
         launch { t.incoming.collect { onHarmanFrame(it) } }
@@ -110,6 +121,10 @@ internal class JblSession(
             else -> JblStack.UNIDENTIFIED
         }
         applyStack()
+        if (stack == JblStack.UNIDENTIFIED) {
+            notice(Notice.PROTOCOL_UNIDENTIFIED)
+            if (!env.experimentalEnabled.value) notice(Notice.EXPERIMENTAL_OFF)
+        }
         if (stack == JblStack.HARMAN_AA && commandStatus() != SupportStatus.EXPERIMENTAL) {
             // Known H-AA model: read state with confirmed queries only.
             harmanExec?.execute(JblCommands.p3EnableNotifications(commandStatus()))
@@ -117,19 +132,28 @@ internal class JblSession(
         }
     }
 
+    /** Frames identify the protocol and confirm the channel only after full validation. */
     private fun onHarmanFrame(frame: ByteArray) {
         log(EventCategory.RX, "harman", frame)
-        if (frame.u8(0) == JblProtocol.P3.HEADER) {
-            if (stack == JblStack.UNIDENTIFIED) { stack = JblStack.HARMAN_AA; applyStack() }
-            val f = JblProtocol.P3.parse(frame) ?: return
+        val p3 = JblProtocol.P3.validate(frame)
+        val p4 = if (p3 == null) JblProtocol.P4.validate(frame) else null
+        if (p3 == null && p4 == null) {
+            log(EventCategory.DRIVER, "frame not recognised, ignored")
+            return
+        }
+        controlConfirmed()
+        if (p3 != null) {
+            if (stack == JblStack.UNIDENTIFIED) identified(JblStack.HARMAN_AA)
+            if (stack != JblStack.HARMAN_AA) return
+            val f = p3
             JblProtocol.P3.parseBattery(f, env.clock())?.let { acceptBattery(it) }
             JblProtocol.P3.parseListeningMode(f)?.let { mode ->
                 update { it.copy(noise = NoiseStatus(mode, DataSource.VENDOR_PROTOCOL, env.clock())) }
             }
-        } else if (JblProtocol.P4.looksLikeP4(frame)) {
-            if (stack == JblStack.UNIDENTIFIED) { stack = JblStack.PROTOCOL_4; applyStack() }
-            val packet = JblProtocol.P4.parse(frame) ?: return
-            val payload = p4.feed(packet) ?: return
+        } else if (p4 != null) {
+            if (stack == JblStack.UNIDENTIFIED) identified(JblStack.PROTOCOL_4)
+            if (stack != JblStack.PROTOCOL_4) return
+            val payload = this.p4.feed(p4) ?: return
             val tlv = JblProtocol.P4.parseTlv(payload)
             JblProtocol.P4.parseBattery(tlv, env.clock())?.let { acceptBattery(it) }
             JblProtocol.P4.parseFirmware(tlv)?.let { fw -> update { it.copy(firmware = fw) } }
@@ -141,20 +165,35 @@ internal class JblSession(
         }
     }
 
+    private fun identified(s: JblStack) {
+        stack = s
+        log(EventCategory.DRIVER, "protocol identified from a validated frame: $s")
+        update { it.copy(notices = it.notices - Notice.PROTOCOL_UNIDENTIFIED - Notice.EXPERIMENTAL_OFF) }
+        applyStack()
+    }
+
     // ---------------- Airoha RACE ----------------
 
     private suspend fun openRace() {
         stack = JblStack.AIROHA_RACE
         applyStack()
+        controlOpening()
         val raw = link.openRfcomm(JblProtocol.AIROHA_RACE_RFCOMM, writable = true)
-            ?: return update { it.copy(protocol = "Airoha RACE record present, channel did not open", notes = it.notes + "Close the JBL app: only one app can hold this channel.") }
+        if (raw == null) {
+            controlFailed()
+            update { it.copy(protocol = "Airoha RACE record present, channel did not open") }
+            return
+        }
         val t = track(FramedTransport(raw, env.scope, env.clock, JblProtocol.Race::split))
+        controlOpened(t)
         race = t
         raceExec = CommandExecutor(t, JblGuard, { env.experimentalEnabled.value }, env.sink, env.clock, link.address)
         launch {
             t.incoming.collect { frame ->
                 log(EventCategory.RX, "race", frame)
-                JblProtocol.Race.parse(frame)?.let(JblProtocol.Race::parseMode)?.let { mode ->
+                val f = JblProtocol.Race.validate(frame) ?: return@collect
+                controlConfirmed()
+                JblProtocol.Race.parseMode(f)?.let { mode ->
                     update { it.copy(noise = NoiseStatus(mode, DataSource.VENDOR_PROTOCOL, env.clock())) }
                 }
             }
@@ -223,7 +262,7 @@ internal class JblSession(
                 // The ack echoes the request; the state is trusted only after reading it back.
                 val read = exec.execute(JblCommands.raceModeGet(s))
                 if (read !is CommandOutcome.Confirmed) return read
-                val reported = JblProtocol.Race.parse(read.response)?.let(JblProtocol.Race::parseMode)
+                val reported = JblProtocol.Race.validate(read.response)?.let(JblProtocol.Race::parseMode)
                 if (reported == mode) read else CommandOutcome.Failed("headset reports $reported after the change")
             }
             else -> CommandOutcome.Unsupported("no verified noise-control command for this JBL protocol")

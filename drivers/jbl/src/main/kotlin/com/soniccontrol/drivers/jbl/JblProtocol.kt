@@ -105,6 +105,23 @@ object JblProtocol {
             return frame(CMD_LISTENING_MODE, bytesOf(OP_SET, 1, anc, 2, ambient, 3, talk))
         }
 
+        /**
+         * Full validation of a received frame: exact framing and length, and a message whose layout we know.
+         * Only validated frames may identify the protocol or confirm the control channel.
+         */
+        fun validate(bytes: ByteArray): Frame? {
+            val f = parse(bytes) ?: return null
+            val ok = when (f.command) {
+                CMD_VERSION_REPLY -> f.payload.isNotEmpty()
+                CMD_BATTERY -> isBatteryReport(f) && f.payload.size >= 7
+                CMD_LISTENING_MODE -> isListeningModeReport(f) && f.payload.size >= 3 && f.payload.size % 2 == 1 &&
+                    (1 until f.payload.size step 2).all { f.payload.u8(it) in 1..3 && f.payload.u8(it + 1) <= 1 }
+                CMD_NOTIFY_CONTROL -> isNotifyAck(f)
+                else -> false
+            }
+            return if (ok) f else null
+        }
+
         fun isVersionReply(f: Frame) = f.command == CMD_VERSION_REPLY
         fun isBatteryReport(f: Frame) = f.command == CMD_BATTERY && f.payload.isNotEmpty() && f.payload.u8(0) == 0x01
         fun isListeningModeReport(f: Frame) = f.command == CMD_LISTENING_MODE && f.payload.isNotEmpty() && f.payload.u8(0) == OP_REPORT
@@ -169,6 +186,29 @@ object JblProtocol {
             val len = bytes.u16le(6)
             if (bytes.size != 8 + len) return null
             return Packet(bytes.u16le(0), bytes.u16le(2), bytes.u8(4), bytes.u8(5), bytes.copyOfRange(8, bytes.size))
+        }
+
+        /** Header sanity: known identifier, 1..n packets, index inside count, exact length. */
+        fun validate(bytes: ByteArray): Packet? {
+            val p = parse(bytes) ?: return null
+            if (p.identifier != IDENTIFIER && p.identifier != 0xDD01) return null
+            if (p.count < 1 || p.index >= p.count) return null
+            // A single-packet message must be a complete TLV list.
+            if (p.count == 1 && parseTlvStrict(p.payload) == null) return null
+            return p
+        }
+
+        /** TLV list that must consume the payload exactly; null otherwise. */
+        fun parseTlvStrict(payload: ByteArray): Map<Int, ByteArray>? {
+            var i = 0
+            val out = LinkedHashMap<Int, ByteArray>()
+            while (i + 4 <= payload.size) {
+                val len = payload.u16le(i + 2)
+                if (i + 4 + len > payload.size) return null
+                out[payload.u16le(i)] = payload.copyOfRange(i + 4, i + 4 + len)
+                i += 4 + len
+            }
+            return if (i == payload.size) out else null
         }
 
         fun getDeviceInfo(ids: List<Int>): ByteArray {
@@ -263,6 +303,9 @@ object JblProtocol {
             }
             return out to i
         }
+
+        /** A reply, notification or event (never an echo of our command type) with exact length. */
+        fun validate(bytes: ByteArray): Frame? = parse(bytes)?.takeIf { it.type == TYPE_REPLY || it.type == 0x5C || it.type == TYPE_EVENT }
 
         fun modeGet() = frame(TYPE_COMMAND, CMD_MODE_GET, bytesOf(0x05, 0x00))
 

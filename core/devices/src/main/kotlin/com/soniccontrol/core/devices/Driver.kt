@@ -36,7 +36,12 @@ data class HeadphoneState(
     val firmware: String? = null,
     /** Short, human-readable protocol identification, shown in the Lab. */
     val protocol: String = "",
+    /** Technical notes for the Lab (English, not localised). */
     val notes: List<String> = emptyList(),
+    /** Localised notices for the user. */
+    val notices: Set<Notice> = emptySet(),
+    /** Vendor control channel. CONFIRMED only after a fully validated frame from the headset. */
+    val control: ChannelState = ChannelState.UNAVAILABLE,
     val busy: Boolean = false,
 )
 

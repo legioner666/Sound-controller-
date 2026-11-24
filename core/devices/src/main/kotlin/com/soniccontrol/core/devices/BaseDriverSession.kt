@@ -30,6 +30,37 @@ abstract class BaseDriverSession(
 
     protected fun update(transform: (HeadphoneState) -> HeadphoneState) = _state.update(transform)
 
+    protected fun notice(n: Notice) = update { it.copy(notices = it.notices + n) }
+    protected fun clearNotice(n: Notice) = update { it.copy(notices = it.notices - n) }
+
+    // ---- vendor control channel state ----
+
+    protected fun controlOpening() = update { it.copy(control = ChannelState.OPENING) }
+
+    protected fun controlFailed() = update { it.copy(control = ChannelState.FAILED, notices = it.notices + Notice.CLOSE_VENDOR_APP) }
+
+    protected fun controlUnavailable() = update { it.copy(control = ChannelState.UNAVAILABLE) }
+
+    /** Marks the transport open (not yet confirmed) and follows it until it closes. */
+    protected fun controlOpened(t: BluetoothTransport) {
+        update { it.copy(control = ChannelState.OPEN) }
+        launch {
+            t.state.collect { s ->
+                if (s is TransportState.Closed || s is TransportState.Failed) {
+                    update { st -> if (st.control.isUp) st.copy(control = ChannelState.CLOSED) else st }
+                }
+            }
+        }
+    }
+
+    /** Call only after a received frame passed full validation (framing, length, checksum, known message). */
+    protected fun controlConfirmed() {
+        if (state.value.control != ChannelState.CONFIRMED) {
+            update { it.copy(control = ChannelState.CONFIRMED, notices = it.notices - Notice.CLOSE_VENDOR_APP) }
+            log(EventCategory.DRIVER, "control channel confirmed by a valid frame")
+        }
+    }
+
     protected fun log(category: EventCategory, message: String, bytes: ByteArray? = null) =
         env.sink.log(DiagnosticEvent(env.clock(), category, "[$driverId] $message", bytes?.toHex(), link.address))
 
@@ -60,8 +91,17 @@ abstract class BaseDriverSession(
 
     /** Starts the passive battery sources. Safe for any device: nothing is written to the headset. */
     protected fun startUniversalSources() {
-        launch { readBleBatteryService() }
+        launch { readDeviceInformation(); readBleBatteryService() }
         if (env.fastPairListening.value) launch { listenFastPair() }
+    }
+
+    /** Standard Device Information Service: firmware revision (read-only). Used for identification only. */
+    private suspend fun readDeviceInformation() {
+        if (StandardUuids.DEVICE_INFORMATION !in link.gattServices()) return
+        link.readCharacteristic(StandardUuids.DEVICE_INFORMATION, StandardUuids.FIRMWARE_REVISION)
+            ?.let { String(it, Charsets.UTF_8).trim('\u0000', ' ') }
+            ?.takeIf { it.isNotBlank() && it.all { c -> c.code in 0x20..0x7E } }
+            ?.let { fw -> update { st -> st.copy(firmware = st.firmware ?: fw) } }
     }
 
     private suspend fun readBleBatteryService() {

@@ -5,6 +5,7 @@ import com.soniccontrol.core.devices.BatteryLevel
 import com.soniccontrol.core.devices.BatteryStatus
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.CatalogNote
 import com.soniccontrol.core.devices.DataSource
 import com.soniccontrol.core.devices.DeviceIdentity
 import com.soniccontrol.core.devices.DeviceLink
@@ -40,7 +41,7 @@ class AppleDriver : HeadphoneDriver {
                 Feature.MEDIA_CONTROL to SupportStatus.BASIC, Feature.BATTERY to SupportStatus.EXPERIMENTAL,
                 Feature.BATTERY_PER_COMPONENT to SupportStatus.EXPERIMENTAL,
             ),
-            notes = "Battery in 10 % steps. Noise control needs Apple's private channel and is not available on Android.",
+            note = CatalogNote.TEN_PERCENT_STEPS_NO_CONTROL,
         )
     }
 

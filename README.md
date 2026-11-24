@@ -8,14 +8,16 @@
 
 ## Встановлення
 
-Готовий APK збирається автоматично після кожного push у `main`:
-**Releases → `latest` → `SonicControl-debug.apk`** (Android 10+).
+Тестовий APK збирається автоматично після кожного push у `main`:
+**[SonicControl-test.apk](https://github.com/legioner666/Sound-controller-/releases/download/test-build/SonicControl-test.apk)** (Android 10+).
+У [релізі `test-build`](https://github.com/legioner666/Sound-controller-/releases/tag/test-build) — номер коміту та SHA-256 (`SHA256SUMS.txt`).
+Це тестова збірка (`com.soniccontrol.debug`, публічний debug-ключ); стабільні релізи підписуються лише приватним ключем.
 
-## Що вміє версія 0.1
+## Що вміє версія 0.2
 
 | Рівень | Що працює |
 |---|---|
-| **Universal** (будь-які навушники) | пошук і розпізнавання пристроїв, статус підключення, гучність медіа (без підсилення понад максимум), керування відтворенням, заряд через Google Fast Pair або Bluetooth Battery Service (лише читання), таймер сну, історія заряду |
+| **Universal** (будь-які навушники) | пошук і розпізнавання пристроїв, окремі статуси аудіо/GATT/RFCOMM/каналу керування, гучність медіа (без підсилення), керування відтворенням, заряд через Fast Pair або Bluetooth Battery Service (лише читання), еквалайзер і баланс телефона, таймер сну, історія заряду |
 | **Advanced** (драйвери) | JBL (H-AA, Airoha RACE, Protocol 4 — лише читання), Sony MDR, Nothing NT Link, Xiaomi GAIA: заряд і керування шумозаглушенням; AirPods/Beats: заряд з BLE-оголошень |
 | **Lab** | GATT-дерево, SDP-записи, читання/підписки, журнал подій, визначення протоколу, експорт знеособленого JSON |
 
@@ -37,6 +39,7 @@
 - [Технічні обмеження](docs/LIMITATIONS.md)
 - [План версій](docs/ROADMAP.md)
 - [Google Play](docs/PLAY_RELEASE.md)
+- [Журнал змін](CHANGELOG.md)
 
 ## Збірка
 

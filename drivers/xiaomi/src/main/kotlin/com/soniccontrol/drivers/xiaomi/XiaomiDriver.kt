@@ -3,6 +3,7 @@ package com.soniccontrol.drivers.xiaomi
 import com.soniccontrol.core.devices.BaseDriverSession
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.CatalogNote
 import com.soniccontrol.core.devices.CommandExecutor
 import com.soniccontrol.core.devices.CommandGuard
 import com.soniccontrol.core.devices.CommandKind
@@ -102,10 +103,10 @@ class XiaomiDriver : HeadphoneDriver {
 
     override val catalog: List<CatalogEntry> = listOf(
         CatalogEntry(Brand.XIAOMI, "Xiaomi Buds 5 Pro", id, "Xiaomi compact GAIA (SPP)", basicFeatures + (Feature.NOISE_CONTROL to SupportStatus.SUPPORTED),
-            notes = "Noise control confirmed on hardware in public research."),
+            note = CatalogNote.CONFIRMED_ON_HARDWARE),
         CatalogEntry(Brand.XIAOMI, "Xiaomi Buds 5", id, "Xiaomi compact GAIA (SPP)", basicFeatures + (Feature.NOISE_CONTROL to SupportStatus.EXPERIMENTAL)),
-        CatalogEntry(Brand.XIAOMI, "Redmi Buds 5", id, "Redmi RCSP (planned)", basicFeatures, notes = "RCSP driver planned for v0.2."),
-        CatalogEntry(Brand.XIAOMI, "Redmi Buds 5 Pro", id, "Redmi RCSP (planned)", basicFeatures, notes = "RCSP driver planned for v0.2."),
+        CatalogEntry(Brand.XIAOMI, "Redmi Buds 5", id, "Redmi RCSP (planned)", basicFeatures, note = CatalogNote.PLANNED_DRIVER),
+        CatalogEntry(Brand.XIAOMI, "Redmi Buds 5 Pro", id, "Redmi RCSP (planned)", basicFeatures, note = CatalogNote.PLANNED_DRIVER),
         CatalogEntry(Brand.XIAOMI, "Redmi Buds 3 Pro", id, "Redmi RCSP with authentication (planned)", basicFeatures),
     )
 
@@ -129,14 +130,19 @@ class XiaomiDriver : HeadphoneDriver {
             override suspend fun start() {
                 startUniversalSources()
                 if (status == SupportStatus.UNSUPPORTED) return
+                controlOpening()
                 val raw = link.openRfcomm(StandardUuids.SPP, writable = true)
-                    ?: return update { it.copy(notes = it.notes + "Control channel did not open. Close Xiaomi Earbuds and reconnect.") }
+                if (raw == null) { controlFailed(); return }
                 val t = track(FramedTransport(raw, env.scope, env.clock, XiaomiGaia::split))
+                controlOpened(t)
                 exec = CommandExecutor(t, guard, { env.experimentalEnabled.value }, env.sink, env.clock, link.address)
                 launch {
                     t.incoming.collect { b ->
                         log(EventCategory.RX, "gaia", b)
-                        XiaomiGaia.parse(b)?.let(XiaomiGaia::parseMode)?.let { m -> update { it.copy(noise = NoiseStatus(m, DataSource.VENDOR_PROTOCOL, env.clock())) } }
+                        val f = XiaomiGaia.parse(b)?.takeIf { it.vendor == XiaomiGaia.VENDOR_DEVICE || it.vendor == XiaomiGaia.VENDOR_HANDSHAKE }
+                            ?: return@collect
+                        controlConfirmed()
+                        f.let(XiaomiGaia::parseMode)?.let { m -> update { it.copy(noise = NoiseStatus(m, DataSource.VENDOR_PROTOCOL, env.clock())) } }
                     }
                 }
                 update { it.copy(capabilities = it.capabilities.with(Feature.NOISE_CONTROL, FeatureSupport(status, "GAIA 0x1004")), noiseModes = listOf(NoiseMode.OFF, NoiseMode.ANC, NoiseMode.AMBIENT)) }

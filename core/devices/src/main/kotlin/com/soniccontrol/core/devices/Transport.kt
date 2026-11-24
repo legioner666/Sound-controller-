@@ -30,6 +30,8 @@ interface BluetoothTransport {
     suspend fun write(bytes: ByteArray)
 }
 
+private val UNKNOWN_CHANNEL: StateFlow<ChannelState> = kotlinx.coroutines.flow.MutableStateFlow(ChannelState.UNAVAILABLE)
+
 class TransportException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 data class ManufacturerAdvert(val address: String, val rssi: Int, val companyId: Int, val data: ByteArray, val timestampMillis: Long) {
@@ -45,6 +47,12 @@ data class ManufacturerAdvert(val address: String, val rssi: Int, val companyId:
 interface DeviceLink {
     val address: String
     val name: String?
+
+    /** GATT connection state (CONFIRMED = services discovered). */
+    val gattState: StateFlow<ChannelState> get() = UNKNOWN_CHANNEL
+
+    /** Aggregate state of RFCOMM channels opened through this link. */
+    val rfcommState: StateFlow<ChannelState> get() = UNKNOWN_CHANNEL
 
     /** Classic SDP service records (cached by Android). Never triggers a write to the device. */
     fun sdpUuids(): Set<UUID>
@@ -69,4 +77,7 @@ interface DeviceLink {
 
     /** Passive BLE advertisements carrying manufacturer data of [companyId] (used for AirPods battery). */
     fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert>
+
+    /** Releases every channel this link opened. Safe to call more than once. */
+    suspend fun close() {}
 }

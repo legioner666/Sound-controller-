@@ -13,7 +13,7 @@ android {
         minSdk = 29 // Android 10
         targetSdk = 36 // Android 16
         versionCode = runNumber
-        versionName = "0.1.$runNumber"
+        versionName = "0.2.$runNumber"
     }
 
     signingConfigs {
@@ -45,7 +45,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
+            // Release builds are signed only with the private upload key. Without it they stay UNSIGNED:
+            // the public debug key in this repository is never used for a release.
+            signingConfig = signingConfigs.findByName("upload")
         }
     }
 
@@ -66,6 +68,7 @@ android {
 
     lint {
         abortOnError = true
+        checkDependencies = true // lint every module the app uses
         checkReleaseBuilds = false
         disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi")
     }
@@ -97,4 +100,16 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
+}
+
+// A stable release (tag v*) must be signed with the private upload key. CI sets SONIC_REQUIRE_UPLOAD_KEY=true for tags.
+val requireUploadKey = System.getenv("SONIC_REQUIRE_UPLOAD_KEY") == "true"
+tasks.configureEach {
+    if (name == "assembleRelease" || name == "bundleRelease") {
+        doFirst {
+            if (requireUploadKey && android.signingConfigs.findByName("upload") == null) {
+                throw GradleException("Stable release refused: no private upload key configured (SONIC_UPLOAD_KEYSTORE).")
+            }
+        }
+    }
 }

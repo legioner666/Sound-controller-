@@ -11,7 +11,7 @@ data class CatalogEntry(
     val protocol: String,
     val features: Map<Feature, SupportStatus>,
     val aliases: List<String> = emptyList(),
-    val notes: String = "",
+    val note: CatalogNote? = null,
 ) {
     val fullName: String get() = if (model.startsWith(brand.displayName, ignoreCase = true)) model else "${brand.displayName} $model"
 

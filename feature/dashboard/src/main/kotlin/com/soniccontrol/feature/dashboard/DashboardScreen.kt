@@ -42,7 +42,10 @@ import com.soniccontrol.core.designsystem.SonicCard
 import com.soniccontrol.core.designsystem.SonicScreen
 import com.soniccontrol.core.designsystem.SourceNote
 import com.soniccontrol.core.designsystem.StatusBadge
+import com.soniccontrol.core.designsystem.LinkStatusRows
 import com.soniccontrol.core.designsystem.connectionLabel
+import com.soniccontrol.core.designsystem.controlSummary
+import com.soniccontrol.core.designsystem.noticeLabel
 import com.soniccontrol.core.designsystem.noiseLabel
 import com.soniccontrol.core.devices.ActiveDevice
 import com.soniccontrol.core.devices.BatteryStatus
@@ -131,13 +134,17 @@ fun AvailabilityBanner(a: BluetoothAvailability, onRequestPermissions: () -> Uni
 
 @Composable
 private fun DeviceHeader(device: ActiveDevice, onRefresh: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
     SonicCard(modifier = Modifier.animateContentSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Headphones, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(device.headphone.displayName, style = MaterialTheme.typography.titleLarge)
-                Text(connectionLabel(device.connection), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    connectionLabel(device.connection) + " · " + controlSummary(device.links),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             OutlinedButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_refresh)) }
         }
@@ -145,7 +152,10 @@ private fun DeviceHeader(device: ActiveDevice, onRefresh: () -> Unit) {
             LevelBadge(device.headphone.capabilities.level)
             Text(device.headphone.protocol, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        LinkStatusRows(device.links)
         if (device.headphone.busy) Text(stringResource(R.string.working), style = MaterialTheme.typography.labelSmall)
+    }
+    device.headphone.notices.forEach { Banner(noticeLabel(it), BannerKind.INFO) }
     }
 }
 

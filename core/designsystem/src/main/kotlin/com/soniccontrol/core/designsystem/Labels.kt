@@ -2,7 +2,11 @@ package com.soniccontrol.core.designsystem
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import com.soniccontrol.core.devices.AudioLinkState
+import com.soniccontrol.core.devices.CatalogNote
+import com.soniccontrol.core.devices.ChannelState
 import com.soniccontrol.core.devices.CommandOutcome
+import com.soniccontrol.core.devices.Notice
 import com.soniccontrol.core.devices.ConnectionState
 import com.soniccontrol.core.devices.Feature
 import com.soniccontrol.core.devices.NoiseMode
@@ -39,8 +43,8 @@ fun featureLabel(f: Feature): String = stringResource(
 @Composable
 fun connectionLabel(c: ConnectionState): String = when (c) {
     ConnectionState.Idle -> stringResource(R.string.conn_idle)
-    ConnectionState.Connecting -> stringResource(R.string.conn_connecting)
-    ConnectionState.Connected -> stringResource(R.string.conn_connected)
+    ConnectionState.Starting -> stringResource(R.string.conn_starting)
+    ConnectionState.Active -> stringResource(R.string.conn_active)
     is ConnectionState.Reconnecting -> stringResource(R.string.conn_reconnecting, c.attempt)
     is ConnectionState.Failed -> stringResource(R.string.conn_failed, c.reason)
 }
@@ -56,3 +60,46 @@ fun outcomeLabel(o: CommandOutcome): String = when (o) {
     is CommandOutcome.Unsupported -> stringResource(R.string.outcome_unsupported, o.reason)
     is CommandOutcome.Failed -> stringResource(R.string.outcome_failed, o.message)
 }
+
+@Composable
+fun channelLabel(c: ChannelState): String = stringResource(
+    when (c) {
+        ChannelState.UNAVAILABLE -> R.string.ch_unavailable
+        ChannelState.OPENING -> R.string.ch_opening
+        ChannelState.OPEN -> R.string.ch_open
+        ChannelState.CONFIRMED -> R.string.ch_confirmed
+        ChannelState.FAILED -> R.string.ch_failed
+        ChannelState.CLOSED -> R.string.ch_closed
+    },
+)
+
+@Composable
+fun audioLabel(a: AudioLinkState): String = stringResource(
+    when (a) {
+        AudioLinkState.UNKNOWN -> R.string.audio_unknown
+        AudioLinkState.CONNECTED -> R.string.audio_connected
+        AudioLinkState.DISCONNECTED -> R.string.audio_disconnected
+    },
+)
+
+@Composable
+fun noticeLabel(n: Notice): String = stringResource(
+    when (n) {
+        Notice.CLOSE_VENDOR_APP -> R.string.notice_close_vendor_app
+        Notice.NO_CONTROL_CHANNEL -> R.string.notice_no_control_channel
+        Notice.PROTOCOL_UNIDENTIFIED -> R.string.notice_protocol_unidentified
+        Notice.VENDOR_NOT_IMPLEMENTED -> R.string.notice_vendor_not_implemented
+        Notice.STANDARD_BATTERY_ONLY -> R.string.notice_standard_battery_only
+        Notice.EXPERIMENTAL_OFF -> R.string.notice_experimental_off
+    },
+)
+
+@Composable
+fun catalogNoteLabel(n: CatalogNote): String = stringResource(
+    when (n) {
+        CatalogNote.PRIORITY_TEST_DEVICE -> R.string.catalog_note_priority
+        CatalogNote.CONFIRMED_ON_HARDWARE -> R.string.catalog_note_confirmed
+        CatalogNote.PLANNED_DRIVER -> R.string.catalog_note_planned
+        CatalogNote.TEN_PERCENT_STEPS_NO_CONTROL -> R.string.catalog_note_apple
+    },
+)

@@ -43,6 +43,8 @@ import com.soniccontrol.core.designsystem.SegmentedTabs
 import com.soniccontrol.core.designsystem.SonicCard
 import com.soniccontrol.core.designsystem.SonicScreen
 import com.soniccontrol.core.designsystem.StatusBadge
+import com.soniccontrol.core.designsystem.LinkStatusRows
+import com.soniccontrol.core.designsystem.catalogNoteLabel
 import com.soniccontrol.core.designsystem.connectionLabel
 import com.soniccontrol.core.designsystem.featureLabel
 import com.soniccontrol.core.devices.BluetoothAvailability
@@ -84,6 +86,7 @@ fun DevicesScreen(controller: HeadphoneController, onRequestPermissions: () -> U
                     SonicCard(title = stringResource(R.string.devices_active)) {
                         Text(a.headphone.displayName, style = MaterialTheme.typography.titleMedium)
                         Text(connectionLabel(a.connection), style = MaterialTheme.typography.bodySmall)
+                        LinkStatusRows(a.links)
                         Text(stringResource(R.string.devices_driver, a.driverName, a.match.reason), style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(onClick = controller::disconnect) { Text(stringResource(R.string.action_disconnect)) }
@@ -166,7 +169,7 @@ private fun CatalogRow(e: CatalogEntry) {
                     Column { Text(featureLabel(f), style = MaterialTheme.typography.labelSmall); StatusBadge(s) }
                 }
             }
-            if (e.notes.isNotBlank()) Text(e.notes, style = MaterialTheme.typography.bodySmall)
+            e.note?.let { Text(catalogNoteLabel(it), style = MaterialTheme.typography.bodySmall) }
             Text(stringResource(R.string.catalog_battery_note), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

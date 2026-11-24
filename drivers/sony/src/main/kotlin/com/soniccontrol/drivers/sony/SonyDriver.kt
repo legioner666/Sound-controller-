@@ -4,6 +4,7 @@ import com.soniccontrol.core.devices.BaseDriverSession
 import com.soniccontrol.core.devices.BluetoothTransport
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.CatalogNote
 import com.soniccontrol.core.devices.CommandExecutor
 import com.soniccontrol.core.devices.CommandGuard
 import com.soniccontrol.core.devices.CommandKind
@@ -104,7 +105,7 @@ class SonyDriver : HeadphoneDriver {
                 if (m.anc) put(Feature.NOISE_CONTROL, m.status)
             },
             aliases = listOf("Sony ${m.name}"),
-            notes = if (m.status == SupportStatus.SUPPORTED) "Noise control confirmed on hardware in public research." else "",
+            note = if (m.status == SupportStatus.SUPPORTED) CatalogNote.CONFIRMED_ON_HARDWARE else null,
         )
     }
 
@@ -146,13 +147,17 @@ class SonyDriver : HeadphoneDriver {
             startUniversalSources()
             if (status == SupportStatus.BASIC) return
             val uuid = if (v1) SonyMdr.V1_UUID else SonyMdr.V2_UUID
+            controlOpening()
             val raw = link.openRfcomm(uuid, writable = true)
-                ?: return update { it.copy(notes = it.notes + "MDR channel did not open. Close Sony's app and reconnect.") }
+            if (raw == null) { controlFailed(); return }
             val framed = track(FramedTransport(raw, env.scope, env.clock, SonyMdr::split))
+            controlOpened(framed)
             val t = track(SonyTransport(framed, env.scope) { msg, b -> log(EventCategory.RX, msg, b) })
             exec = CommandExecutor(t, SonyGuard, { env.experimentalEnabled.value }, env.sink, env.clock, link.address)
             launch {
                 t.incoming.collect { p ->
+                    // SonyTransport only emits frames that passed framing, escaping and checksum checks.
+                    controlConfirmed()
                     log(EventCategory.RX, "MDR payload ${p.toHex()}")
                     SonyMdr.parseNc(p)?.let { s ->
                         s.ambientLevel?.let { ambientLevel = it }

@@ -19,6 +19,8 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -28,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,6 +47,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.soniccontrol.core.bluetooth.BluetoothPermissions
 import com.soniccontrol.core.database.ThemeMode
+import com.soniccontrol.core.devices.Feature
+import com.soniccontrol.core.devices.SupportStatus
+import kotlinx.coroutines.launch
 import com.soniccontrol.core.designsystem.R
 import com.soniccontrol.core.designsystem.SegmentedTabs
 import com.soniccontrol.core.designsystem.SonicTheme
@@ -65,7 +71,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by container.db.settings.collectAsStateWithLifecycle()
             val dark = when (settings.theme) { ThemeMode.SYSTEM -> null; ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
-            SonicTheme(dark = dark) { SonicNavigation(container) }
+            SonicTheme(dark = dark) { SonicNavigation(container, showOnboarding = !settings.onboardingDone) }
         }
     }
 
@@ -76,7 +82,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val route: String, val label: Int, val icon: ImageVector) {
+private enum class NavTab(val route: String, val label: Int, val icon: ImageVector) {
     HOME("home", R.string.tab_home, Icons.Outlined.Home),
     DEVICES("devices", R.string.tab_devices, Icons.Outlined.Headphones),
     SOUND("sound", R.string.tab_sound, Icons.Outlined.GraphicEq),
@@ -88,7 +94,7 @@ private enum class SoundPage { NOISE, EQ, GESTURES, AUTOMATION }
 private enum class LabPage { DIAGNOSTICS, BATTERY }
 
 @Composable
-private fun SonicNavigation(container: AppContainer) {
+private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
     val nav = rememberNavController()
     val controller = container.controller
     val snackbar = remember { SnackbarHostState() }
@@ -97,7 +103,6 @@ private fun SonicNavigation(container: AppContainer) {
     val requestPermissions = { permissionLauncher.launch(BluetoothPermissions.required) }
 
     LaunchedEffect(Unit) {
-        if (!BluetoothPermissions.granted(context)) requestPermissions()
         controller.results.collect { r ->
             if (r.action == "refresh" && r.outcome is com.soniccontrol.core.devices.CommandOutcome.Confirmed) return@collect
             snackbar.showSnackbar(outcomeMessage(context, r.outcome))
@@ -106,12 +111,18 @@ private fun SonicNavigation(container: AppContainer) {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
+    val scope = rememberCoroutineScope()
+
+    if (showOnboarding) {
+        OnboardingFlow(controller, onRequestPermissions = requestPermissions) { scope.launch { container.db.setOnboardingDone() } }
+        return
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach { t ->
+                NavTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = current == t.route,
                         onClick = {
@@ -128,31 +139,40 @@ private fun SonicNavigation(container: AppContainer) {
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            NavHost(nav, startDestination = Tab.HOME.route) {
-                composable(Tab.HOME.route) {
-                    DashboardScreen(controller, container.audio, container.db.settings, onOpenDevices = { nav.navigate(Tab.DEVICES.route) }, onRequestPermissions = requestPermissions)
+            NavHost(nav, startDestination = NavTab.HOME.route) {
+                composable(NavTab.HOME.route) {
+                    DashboardScreen(controller, container.audio, container.db.settings, onOpenDevices = { nav.navigate(NavTab.DEVICES.route) }, onRequestPermissions = requestPermissions)
                 }
-                composable(Tab.DEVICES.route) { DevicesScreen(controller, onRequestPermissions = requestPermissions) }
-                composable(Tab.SOUND.route) {
-                    var page by rememberSaveable { mutableStateOf(SoundPage.NOISE) }
+                composable(NavTab.DEVICES.route) { DevicesScreen(controller, onRequestPermissions = requestPermissions) }
+                composable(NavTab.SOUND.route) {
+                    val active by controller.active.collectAsStateWithLifecycle()
+                    // Pages for features the connected headset cannot use at all are hidden.
+                    val noiseUnsupported = active?.headphone?.let {
+                        it.noiseModes.isEmpty() && it.capabilities.of(Feature.NOISE_CONTROL).status == SupportStatus.UNSUPPORTED
+                    } ?: false
+                    val pages = SoundPage.entries.filter { it != SoundPage.NOISE || !noiseUnsupported }
+                    var chosen by rememberSaveable { mutableStateOf(SoundPage.NOISE) }
+                    val page = if (chosen in pages) chosen else pages.first()
                     Column {
-                        Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-                            SegmentedTabs(SoundPage.entries, page, {
-                                stringResource(when (it) {
-                                    SoundPage.NOISE -> R.string.sound_page_noise; SoundPage.EQ -> R.string.sound_page_eq
-                                    SoundPage.GESTURES -> R.string.sound_page_gestures; SoundPage.AUTOMATION -> R.string.sound_page_automation
+                        PrimaryScrollableTabRow(selectedTabIndex = pages.indexOf(page), edgePadding = 16.dp) {
+                            pages.forEach { p ->
+                                Tab(selected = p == page, onClick = { chosen = p }, text = {
+                                    Text(stringResource(when (p) {
+                                        SoundPage.NOISE -> R.string.sound_page_noise; SoundPage.EQ -> R.string.sound_page_eq
+                                        SoundPage.GESTURES -> R.string.sound_page_gestures; SoundPage.AUTOMATION -> R.string.sound_page_automation
+                                    }))
                                 })
-                            }) { page = it }
+                            }
                         }
                         when (page) {
                             SoundPage.NOISE -> NoiseControlScreen(controller, controller.experimental)
-                            SoundPage.EQ -> EqualizerScreen(controller, container.db)
+                            SoundPage.EQ -> EqualizerScreen(controller, container.db, container.systemEq)
                             SoundPage.GESTURES -> GesturesScreen(controller)
                             SoundPage.AUTOMATION -> AutomationScreen(container.audio)
                         }
                     }
                 }
-                composable(Tab.LAB.route) {
+                composable(NavTab.LAB.route) {
                     var page by rememberSaveable { mutableStateOf(LabPage.DIAGNOSTICS) }
                     Column {
                         Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
@@ -166,7 +186,7 @@ private fun SonicNavigation(container: AppContainer) {
                         }
                     }
                 }
-                composable(Tab.SETTINGS.route) { SettingsScreen(container.db, BuildConfig.VERSION_NAME) }
+                composable(NavTab.SETTINGS.route) { SettingsScreen(container.db, BuildConfig.VERSION_NAME) }
             }
         }
     }

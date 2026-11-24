@@ -177,14 +177,17 @@ class NothingDriver : HeadphoneDriver {
 
             override suspend fun start() {
                 startUniversalSources()
+                controlOpening()
                 val raw = link.openRfcomm(NtLink.UUID_NT, writable = true)
-                    ?: return update { it.copy(notes = it.notes + "NT Link channel did not open. Close the Nothing X app and reconnect.") }
+                if (raw == null) { controlFailed(); return }
                 val t = track(FramedTransport(raw, env.scope, env.clock, NtLink::split))
+                controlOpened(t)
                 exec = CommandExecutor(t, guard, { env.experimentalEnabled.value }, env.sink, env.clock, link.address)
                 launch {
                     t.incoming.collect { b ->
                         log(EventCategory.RX, "nt", b)
-                        val f = NtLink.parse(b) ?: return@collect
+                        val f = NtLink.parse(b) ?: return@collect // length + CRC checked
+                        controlConfirmed()
                         NtLink.parseBattery(f, env.clock())?.let { acceptBattery(it) }
                         NtLink.parseNoise(f)?.let { (mode, raw) ->
                             if (mode == NoiseMode.ANC) ancLevel = raw

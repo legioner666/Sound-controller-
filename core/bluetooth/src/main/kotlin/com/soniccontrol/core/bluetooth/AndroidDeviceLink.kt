@@ -6,15 +6,21 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
 import android.content.Context
 import com.soniccontrol.core.devices.BluetoothTransport
+import com.soniccontrol.core.devices.ChannelState
 import com.soniccontrol.core.devices.CharacteristicInfo
 import com.soniccontrol.core.devices.DeviceLink
 import com.soniccontrol.core.devices.ManufacturerAdvert
 import com.soniccontrol.core.devices.ServiceInfo
 import com.soniccontrol.core.devices.StandardUuids
+import com.soniccontrol.core.devices.TransportState
 import com.soniccontrol.core.diagnostics.DiagnosticSink
 import com.soniccontrol.core.protocol.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -40,6 +46,12 @@ class AndroidDeviceLink(
     override val address: String = device.address
     override val name: String? = runCatching { device.name }.getOrNull()
 
+    private val _gattState = MutableStateFlow(ChannelState.UNAVAILABLE)
+    override val gattState: StateFlow<ChannelState> = _gattState.asStateFlow()
+    private val _rfcommState = MutableStateFlow(ChannelState.UNAVAILABLE)
+    override val rfcommState: StateFlow<ChannelState> = _rfcommState.asStateFlow()
+    @Volatile private var closed = false
+
     private val gattLock = Mutex()
     private var gatt: GattClient? = null
     private var gattTried = false
@@ -53,15 +65,23 @@ class AndroidDeviceLink(
     fun refreshSdp() { runCatching { device.fetchUuidsWithSdp() } }
 
     private suspend fun gatt(): GattClient? = gattLock.withLock {
+        if (closed) return@withLock null
         gatt?.let { if (it.connected.value) return@withLock it }
         if (gattTried && gatt == null) return@withLock null
         gattTried = true
+        _gattState.value = ChannelState.OPENING
         val candidates = listOf(device) + leCandidates().filter { it != device.address }.mapNotNull { runCatching { adapter.getRemoteDevice(it) }.getOrNull() }
         for (d in candidates) {
             val c = GattClient(context, d, sink, clock)
-            if (c.connect()) { gatt = c; return@withLock c }
+            if (c.connect()) {
+                gatt = c
+                _gattState.value = ChannelState.CONFIRMED // services were discovered
+                scope.launch { c.connected.collect { up -> if (!up && gatt === c) _gattState.value = ChannelState.CLOSED } }
+                return@withLock c
+            }
             c.close()
         }
+        _gattState.value = ChannelState.FAILED
         null
     }
 
@@ -96,8 +116,26 @@ class AndroidDeviceLink(
     }
 
     override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? {
+        if (closed) return null
         runCatching { adapter.cancelDiscovery() }
-        return RfcommTransport.open(device, uuid, writable, scope, sink, clock)?.also { synchronized(transports) { transports += it } }
+        if (!_rfcommState.value.isUp) _rfcommState.value = ChannelState.OPENING
+        val t = RfcommTransport.open(device, uuid, writable, scope, sink, clock)
+        if (t == null) {
+            if (!openRfcommUp()) _rfcommState.value = ChannelState.FAILED
+            return null
+        }
+        synchronized(transports) { transports += t }
+        _rfcommState.value = ChannelState.OPEN
+        scope.launch {
+            t.state.collect { st ->
+                if (st != TransportState.Open && !openRfcommUp()) _rfcommState.value = ChannelState.CLOSED
+            }
+        }
+        return t
+    }
+
+    private fun openRfcommUp(): Boolean = synchronized(transports) {
+        transports.any { it is RfcommTransport && it.state.value == TransportState.Open }
     }
 
     override fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert> = scanner.adverts(companyId)
@@ -130,9 +168,12 @@ class AndroidDeviceLink(
         g.notifications.collect { n -> lastValues[n.characteristic] = n.value.toHex(); onValue(n.characteristic, n.value) }
     }
 
-    suspend fun close() {
+    override suspend fun close() {
+        closed = true
         val ts = synchronized(transports) { transports.toList().also { transports.clear() } }
         ts.forEach { runCatching { it.close() } }
         gattLock.withLock { gatt?.close(); gatt = null; gattTried = false }
+        if (_gattState.value != ChannelState.UNAVAILABLE) _gattState.value = ChannelState.CLOSED
+        if (_rfcommState.value != ChannelState.UNAVAILABLE) _rfcommState.value = ChannelState.CLOSED
     }
 }

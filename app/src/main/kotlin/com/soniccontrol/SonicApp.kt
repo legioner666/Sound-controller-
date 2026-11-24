@@ -2,6 +2,7 @@ package com.soniccontrol
 
 import android.app.Application
 import com.soniccontrol.core.audio.AudioController
+import com.soniccontrol.core.audio.SystemEqualizer
 import com.soniccontrol.core.database.SonicDatabase
 import com.soniccontrol.core.devices.DriverRegistry
 import com.soniccontrol.core.diagnostics.DiagnosticLog
@@ -18,6 +19,8 @@ import com.soniccontrol.drivers.xiaomi.XiaomiDriver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /** Manual dependency container: no reflection, no DI framework. */
 class AppContainer(app: Application) {
@@ -34,6 +37,20 @@ class AppContainer(app: Application) {
     )
 
     val controller = SonicController(app, scope, db, log, registry, BuildConfig.VERSION_NAME)
+
+    val systemEq = SystemEqualizer()
+
+    init {
+        // Keep the phone equaliser in step with the saved settings and the selected profile.
+        scope.launch {
+            combine(db.settings, db.eqProfiles) { s, profiles -> Triple(s, profiles.firstOrNull { it.id == s.eqProfileId } ?: profiles.first(), s.balance) }
+                .collect { (s, profile, balance) ->
+                    systemEq.setGains(profile.gainsDb)
+                    systemEq.setBalance(balance)
+                    if (systemEq.status.value.enabled != s.systemEq) systemEq.setEnabled(s.systemEq)
+                }
+        }
+    }
 }
 
 class SonicApp : Application() {

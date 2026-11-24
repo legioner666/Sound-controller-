@@ -6,7 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Hearing
 import androidx.compose.material.icons.outlined.NoiseAware
@@ -104,10 +105,10 @@ private fun ModeTile(mode: NoiseMode, selected: Boolean, modifier: Modifier = Mo
     }
     OutlinedCard(
         onClick = onClick,
-        modifier = modifier.height(96.dp).semantics { role = Role.RadioButton; this.selected = selected },
+        modifier = modifier.heightIn(min = 96.dp).semantics { role = Role.RadioButton; this.selected = selected },
         border = BorderStroke(if (selected) 2.dp else 1.dp, border),
     ) {
-        Column(Modifier.fillMaxWidth().height(96.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 96.dp).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Text(noiseLabel(mode), style = MaterialTheme.typography.labelLarge)
         }

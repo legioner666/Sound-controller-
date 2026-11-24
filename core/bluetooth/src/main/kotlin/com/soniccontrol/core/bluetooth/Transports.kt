@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -121,16 +123,28 @@ class RfcommTransport private constructor(
             device: BluetoothDevice, uuid: UUID, writable: Boolean, scope: CoroutineScope, sink: DiagnosticSink, clock: () -> Long,
         ): RfcommTransport? = withContext(Dispatchers.IO) {
             sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "opening RFCOMM $uuid", null, device.address))
+            var socket: BluetoothSocket? = null
+            // connect() blocks and ignores coroutine cancellation; closing the socket aborts it, so nothing leaks.
+            val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause -> if (cause != null) runCatching { socket?.close() } }
             try {
                 val s = device.createRfcommSocketToServiceRecord(uuid)
+                socket = s
                 s.connect()
+                coroutineContext.ensureActive()
                 RfcommTransport(s, uuid, writable, scope, sink, clock)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                runCatching { socket?.close() }
+                throw e
             } catch (e: IOException) {
+                runCatching { socket?.close() }
                 sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "RFCOMM $uuid failed: ${e.message}", null, device.address))
                 null
             } catch (e: SecurityException) {
+                runCatching { socket?.close() }
                 sink.log(DiagnosticEvent(clock(), EventCategory.PERMISSION, "RFCOMM: ${e.message}", null, device.address))
                 null
+            } finally {
+                cancelHandle?.dispose()
             }
         }
     }

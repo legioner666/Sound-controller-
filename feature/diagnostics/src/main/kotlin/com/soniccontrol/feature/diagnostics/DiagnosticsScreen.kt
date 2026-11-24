@@ -22,6 +22,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.soniccontrol.core.designsystem.Banner
 import com.soniccontrol.core.designsystem.BannerKind
 import com.soniccontrol.core.designsystem.KeyValue
+import com.soniccontrol.core.designsystem.LinkStatusRows
+import com.soniccontrol.core.designsystem.noticeLabel
 import com.soniccontrol.core.designsystem.MonoStyle
 import com.soniccontrol.core.designsystem.R
 import com.soniccontrol.core.designsystem.SectionHeader
@@ -64,6 +66,8 @@ fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: 
                     KeyValue(stringResource(R.string.lab_protocol), device.headphone.protocol)
                     device.headphone.firmware?.let { KeyValue(stringResource(R.string.lab_firmware), it) }
                     device.headphone.catalogEntry?.let { KeyValue(stringResource(R.string.lab_catalog), it.fullName) }
+                    LinkStatusRows(device.links)
+                    device.headphone.notices.forEach { Text("• " + noticeLabel(it), style = MaterialTheme.typography.bodySmall) }
                     device.headphone.notes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
                 }
             }

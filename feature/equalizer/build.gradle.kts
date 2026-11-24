@@ -7,6 +7,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:audio"))
     implementation(project(":core:devices"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:diagnostics"))

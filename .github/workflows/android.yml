@@ -17,9 +17,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       HAS_UPLOAD_KEY: ${{ secrets.UPLOAD_KEYSTORE_BASE64 != '' }}
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +34,8 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon test
 
-      - name: Lint
-        continue-on-error: true
+      # Blocking: any lint error fails the build, so nothing is published.
+      - name: Lint (all modules)
         run: ./gradlew --no-daemon :app:lintDebug
 
       - name: Lint report
@@ -45,27 +46,6 @@ jobs:
           path: app/build/reports/lint-results-debug.*
           if-no-files-found: ignore
 
-      - name: Decode upload key (optional)
-        if: env.HAS_UPLOAD_KEY == 'true'
-        env:
-          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
-        run: echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks" && echo "SONIC_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
-
-      - name: Build APK and AAB
-        env:
-          SONIC_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
-          SONIC_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
-          SONIC_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease :app:bundleRelease
-
-      - name: Collect outputs
-        run: |
-          mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/SonicControl-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk out/SonicControl-release.apk
-          cp app/build/outputs/bundle/release/app-release.aab out/SonicControl-release.aab
-          ls -la out
-
       - name: Test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,28 +54,75 @@ jobs:
           path: '**/build/reports/tests/**'
           if-no-files-found: ignore
 
+      - name: Refuse a stable release without the private key
+        if: env.IS_TAG == 'true' && env.HAS_UPLOAD_KEY != 'true'
+        run: |
+          echo "::error::Tag builds are stable releases and must be signed with the private upload key (secret UPLOAD_KEYSTORE_BASE64)."
+          exit 1
+
+      - name: Decode upload key
+        if: env.HAS_UPLOAD_KEY == 'true'
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks" && echo "SONIC_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Build test APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Build signed release (APK + AAB)
+        if: env.HAS_UPLOAD_KEY == 'true'
+        env:
+          SONIC_REQUIRE_UPLOAD_KEY: 'true'
+          SONIC_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          SONIC_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          SONIC_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
+
+      - name: Collect outputs with checksums
+        run: |
+          mkdir -p out
+          short=$(git rev-parse --short HEAD)
+          cp app/build/outputs/apk/debug/app-debug.apk "out/SonicControl-test-${GITHUB_RUN_NUMBER}-${short}.apk"
+          # Same file under a fixed name, so the download link never changes.
+          cp app/build/outputs/apk/debug/app-debug.apk out/SonicControl-test.apk
+          if [ "$HAS_UPLOAD_KEY" = "true" ]; then
+            cp app/build/outputs/apk/release/app-release.apk "out/SonicControl-${GITHUB_RUN_NUMBER}-${short}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "out/SonicControl-${GITHUB_RUN_NUMBER}-${short}.aab"
+          fi
+          (cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          {
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Build: ${GITHUB_RUN_NUMBER}"
+            echo ""
+            echo "SHA-256:"
+            echo '```'
+            cat out/SHA256SUMS.txt
+            echo '```'
+          } > release-notes.md
+
       - uses: actions/upload-artifact@v4
         with:
           name: sonic-control-${{ github.run_number }}
           path: out/*
 
-      # Phone-friendly download: a rolling pre-release updated on every push to main.
-      - name: Publish rolling release
+      # Test build only: signed with the public debug key, package com.soniccontrol.debug, marked pre-release.
+      - name: Publish test build
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Sonic Control (latest build ${{ github.run_number }})
-          prerelease: true
-          make_latest: false
-          body: |
-            Automatic build ${{ github.run_number }} from ${{ github.sha }}.
-            Install SonicControl-debug.apk on a phone (Android 10+). The debug build installs alongside release builds.
-            The AAB is signed with an upload key only when repository secrets are configured.
-          files: out/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "TEST BUILD — not a stable release. Signed with the public debug key; installs as \"Sonic Control debug\" (com.soniccontrol.debug)."
+            echo ""
+            cat release-notes.md
+          } > notes.md
+          gh release delete test-build --yes --cleanup-tag || true
+          gh release create test-build out/* --prerelease --title "Sonic Control test build ${GITHUB_RUN_NUMBER}" --notes-file notes.md --target "${GITHUB_SHA}"
+          gh release delete latest --yes --cleanup-tag || true
 
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish stable release
+        if: env.IS_TAG == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: out/*

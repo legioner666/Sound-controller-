@@ -10,8 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
@@ -28,7 +28,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun AutomationScreen(audio: AudioController) {
     val timer by audio.sleepTimer.collectAsStateWithLifecycle()
-    var minutes by remember { mutableStateOf(30) }
+    var minutes by remember { mutableIntStateOf(30) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(timer) { while (timer != null) { now = System.currentTimeMillis(); delay(1_000) } }
 

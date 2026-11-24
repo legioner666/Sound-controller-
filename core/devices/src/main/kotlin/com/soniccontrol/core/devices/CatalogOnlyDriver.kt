@@ -29,6 +29,7 @@ open class CatalogOnlyDriver(
                 catalogEntry = match(identity)?.entry,
                 protocol = protocolNote,
                 notes = listOf("${brand.displayName}: vendor protocol not implemented yet; universal features only"),
+                notices = setOf(Notice.VENDOR_NOT_IMPLEMENTED),
             ),
         ) {
             override suspend fun start() = startUniversalSources()
