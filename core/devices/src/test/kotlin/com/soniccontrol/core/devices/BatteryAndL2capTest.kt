@@ -119,6 +119,18 @@ class BatteryAndL2capTest {
         assertEquals(3, link.l2capRequests.size)                               // bounded, no endless loop
     }
 
+    /** Real v0.8.11 capture: three L2CAP tries all ended with "Client security clearance failed". Now the first refusal ends it. */
+    @Test fun securityRefusalStopsL2capAfterTheFirstAttempt() = runTest {
+        val rf = FakeTransport()
+        val link = FakeLink(sdp = setOf(rfUuid), rfcomm = mapOf(rfUuid to rf), services = setOf(StandardUuids.FAST_PAIR_SERVICE),
+            characteristics = mapOf(StandardUuids.FAST_PAIR_PSM to hex("01 00 A1")))
+        link.l2capSecurityFailure = true
+        val s = session(link)
+        s.start(); advanceUntilIdle()
+        rf.close(); advanceTimeBy(10 * 60_000); advanceUntilIdle()
+        assertEquals(1, link.l2capRequests.size)
+    }
+
     @Test fun unavailableOrInvalidPsmIsNeverOpened() = runTest {
         for (v in listOf("02 00 A1", "01 00 7F", "00 A1")) {
             val rf = FakeTransport()

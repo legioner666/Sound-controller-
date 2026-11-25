@@ -119,7 +119,11 @@ class AndroidDeviceLink(
         return gatt() != null
     }
 
+    @Volatile private var l2capSecurityDenied = false
+    override val l2capDenied: Boolean get() = l2capSecurityDenied
+
     override suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? = channelLock.withLock {
+        if (l2capSecurityDenied) return@withLock null // a confirmed security refusal ends L2CAP for this session; authentication is never bypassed
         if (closed) return@withLock null
         // The PSM was read over GATT from this device, so the channel must go to the same LE endpoint, never the classic address.
         val target = gattDevice ?: return@withLock null
@@ -148,6 +152,10 @@ class AndroidDeviceLink(
         val t = result.getOrNull()
         record(ConnectionAttempt("l2cap", "secure", "gatt-endpoint", target.address, GattClient.bondName(target.bondState), clock() - started, null, null,
             if (t != null) "OK" else RfcommTransport.classify(result.exceptionOrNull()?.message), if (t != null) "psm=$psm" else result.exceptionOrNull()?.message))
+        if (t == null && result.exceptionOrNull()?.message?.contains("security", ignoreCase = true) == true) {
+            l2capSecurityDenied = true
+            sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "L2CAP refused by Android security clearance: no further L2CAP attempts this session", null, target.address))
+        }
         t?.also { synchronized(transports) { transports.add(it) } }
     }
 
@@ -238,7 +246,25 @@ class AndroidDeviceLink(
         null
     } }
 
-    override suspend fun reconnectGatt(): Boolean = gatt() != null
+    /**
+     * Recovery after GATT loss (TASK 009). Always a fresh cycle: the old client and its subscriptions are closed, stale endpoint
+     * knowledge (cached observations, the previously reported LE address) is dropped, a new scan runs, and every candidate is
+     * verified again. Previously a failed first cycle left a "tried" flag set, so attempts 2..5 returned instantly without touching Bluetooth.
+     */
+    override suspend fun reconnectGatt(): Boolean {
+        if (closed) return false
+        channelLock.withLock { gattLock.withLock {
+            if (gatt?.connected?.value == true) return true
+            gatt?.let { runCatching { it.close() } }
+            gatt = null; gattTried = false; subscribed.clear()
+            _gattState.value = ChannelState.CLOSED
+            val stale = streamEndpoint
+            streamEndpoint = null
+            scanner.invalidateObservations()
+            sink.log(DiagnosticEvent(clock(), EventCategory.CONNECTION, "recovery: old GATT closed, endpoint cache invalidated${if (stale != null) " (stale LE address dropped)" else ""}", null, device.address))
+        } }
+        return gatt() != null
+    }
 
     override val activeSubscriptions: Int get() = subscribed.size
 

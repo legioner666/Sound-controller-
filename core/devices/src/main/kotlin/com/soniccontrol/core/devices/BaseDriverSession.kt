@@ -145,7 +145,7 @@ abstract class BaseDriverSession(
     // ---- recovery (TASK 007) --------------------------------------------------------------------------------------
 
     private var recoveryJob: Job? = null
-    private val recoveryDelaysMillis = listOf(3_000L, 10_000L, 30_000L, 60_000L, 120_000L)
+    private val recoveryDelaysMillis = listOf(2_000L, 5_000L, 15_000L, 30_000L, 60_000L)
 
     /** The GATT link was lost: drivers release whatever depended on it (control channel, subscriptions). */
     protected open suspend fun onGattLost() {}
@@ -176,8 +176,10 @@ abstract class BaseDriverSession(
         recoveryJob = launch {
             onGattLost()
             for ((i, wait) in recoveryDelaysMillis.withIndex()) {
-                updateLive { it.copy(reconnect = "attempt ${i + 1}/${recoveryDelaysMillis.size}") }
+                updateLive { it.copy(reconnect = "waiting ${wait / 1000} s before attempt ${i + 1}/${recoveryDelaysMillis.size}") }
                 kotlinx.coroutines.delay(wait)
+                updateLive { it.copy(reconnect = "attempt ${i + 1}/${recoveryDelaysMillis.size}") }
+                log(EventCategory.GATT, "GATT recovery attempt ${i + 1}/${recoveryDelaysMillis.size}: fresh scan and endpoint verification")
                 if (link.reconnectGatt()) {
                     updateLive { it.copy(reconnect = null, stopReason = null, reconnects = it.reconnects + 1, subscriptions = link.activeSubscriptions) }
                     log(EventCategory.GATT, "GATT recovered after attempt ${i + 1}")
@@ -272,7 +274,7 @@ abstract class BaseDriverSession(
      * per session, so a headset that refuses can never cause an endless reconnect loop. Never touches the JBL control channel.
      */
     private suspend fun openFastPairL2cap(): BluetoothTransport? {
-        while (l2capAttempts < MAX_L2CAP_ATTEMPTS) {
+        while (l2capAttempts < MAX_L2CAP_ATTEMPTS && !link.l2capDenied) {
             l2capAttempts++
             val up = kotlinx.coroutines.withTimeoutOrNull(GATT_WAIT_MILLIS) { link.gattState.first { it == ChannelState.CONFIRMED } }
             if (up == null) { log(EventCategory.RFCOMM, "L2CAP: GATT endpoint not available (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)"); continue }
@@ -294,6 +296,7 @@ abstract class BaseDriverSession(
                 return track(FramedTransport(raw, env.scope, env.clock, FastPair::split)).also { currentStream = it }
             }
             log(EventCategory.RFCOMM, "L2CAP PSM $psm did not open (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)")
+            if (link.l2capDenied) { log(EventCategory.RFCOMM, "L2CAP security refusal confirmed: not retrying in this session"); return null }
             kotlinx.coroutines.delay(2_000L * l2capAttempts)
         }
         return null

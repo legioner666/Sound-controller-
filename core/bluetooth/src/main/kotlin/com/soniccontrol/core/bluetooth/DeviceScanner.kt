@@ -58,6 +58,9 @@ class DeviceScanner(
     /** Fast Pair model ids seen in advertisements, by address. */
     val fastPairModels = HashMap<String, String>()
 
+    /** Forgets every cached BLE observation (after a GATT loss addresses may have rotated). */
+    fun invalidateObservations() { observed.clear(); fastPairData.clear() }
+
     private fun log(msg: String, address: String? = null) = sink.log(DiagnosticEvent(clock(), EventCategory.SCAN, msg, null, address))
 
     private fun merge(address: String, name: String?, rssi: Int?, source: DiscoverySource, bonded: Boolean? = null, audio: Boolean? = null) {

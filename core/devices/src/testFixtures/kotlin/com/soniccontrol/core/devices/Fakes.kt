@@ -44,7 +44,16 @@ class FakeLink(
     var closed = false
     var l2cap: BluetoothTransport? = null
     val l2capRequests = mutableListOf<Int>()
-    override suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? { l2capRequests += psm; return l2cap }
+    /** Emulates Android's "Client security clearance failed": the first request is refused and every later one is blocked. */
+    var l2capSecurityFailure = false
+    private var denied = false
+    override val l2capDenied: Boolean get() = denied
+    override suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? {
+        if (denied) return null
+        l2capRequests += psm
+        if (l2capSecurityFailure) { denied = true; return null }
+        return l2cap
+    }
     val opened = mutableListOf<UUID>()
     val suggested = mutableListOf<Pair<String, String?>>()
     var openedWritable: Boolean? = null

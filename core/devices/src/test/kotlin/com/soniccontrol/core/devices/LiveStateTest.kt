@@ -58,10 +58,10 @@ class LiveStateTest {
         val readsBefore = link.reads
         link.reconnectResults += listOf(false, true)
         link.gattStateFlow.value = ChannelState.CLOSED; runCurrent()
-        assertEquals("attempt 1/5", s.state.value.live.reconnect)
+        assertEquals("waiting 2 s before attempt 1/5", s.state.value.live.reconnect)  // not shown as an attempt before one runs
         assertEquals("GATT link lost", s.state.value.live.stopReason)
-        advanceTimeBy(3_001); runCurrent()               // first attempt fails
-        advanceTimeBy(10_001); runCurrent()              // second succeeds
+        advanceTimeBy(2_001); runCurrent()               // first attempt fails
+        advanceTimeBy(5_001); runCurrent()              // second succeeds
         assertEquals(2, link.reconnectCalls)
         assertNull(s.state.value.live.reconnect); assertNull(s.state.value.live.stopReason)
         assertEquals(1, s.state.value.live.reconnects)
@@ -84,7 +84,7 @@ class LiveStateTest {
         link.reconnectResults += true
         link.gattStateFlow.value = ChannelState.CLOSED; runCurrent()
         link.gattStateFlow.value = ChannelState.FAILED; link.gattStateFlow.value = ChannelState.CLOSED; runCurrent()
-        advanceTimeBy(3_001); runCurrent()
+        advanceTimeBy(2_001); runCurrent()
         assertEquals(1, link.reconnectCalls)
     }
 
