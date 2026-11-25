@@ -31,7 +31,7 @@ object DiagnosticReport {
                     "t" to e.timestampMillis,
                     "category" to e.category.name,
                     "message" to redactor.text(e.message),
-                    "hex" to e.hex?.let(redactor::hex),
+                    "hex" to e.hex?.let { h -> HexPolicy.export(e.message, h, redactor) },
                     "device" to e.address?.let(redactor::address),
                 )
             },
