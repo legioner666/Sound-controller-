@@ -99,9 +99,11 @@ class FastPairStreamTest {
     }
 
     @Test fun psmMustBeInDynamicRange() {
-        assertEquals(0x80, FastPair.parsePsm(hex("8000")))
-        assertEquals(0xC1, FastPair.parsePsm(hex("00C1")))
-        assertNull(FastPair.parsePsm(hex("0001")))
+        // The characteristic is exactly 3 bytes: state, PSM uint16 (see BatteryAndL2capTest for the full vector table).
+        assertEquals(0x80, FastPair.parsePsm(hex("010080")))
+        assertEquals(0xA1, FastPair.parsePsm(hex("0100A1")))
+        assertNull(FastPair.parsePsm(hex("8000")))          // old one/two-byte forms are no longer accepted
+        assertNull(FastPair.parsePsm(hex("010001")))
         assertNull(FastPair.parsePsm(hex("0102030405")))
     }
 }

@@ -38,6 +38,8 @@
     <string name="battery_headset">Headset</string>
     <string name="battery_charging">charging</string>
     <string name="battery_no_reading">no reading</string>
+    <string name="battery_inactive">not active</string>
+    <string name="battery_last_known">last known</string>
     <string name="battery_none_yet">No battery reading from this headset yet. Values appear only when the headset reports them.</string>
     <string name="source_note">Source: %1$s · %2$s</string>
     <string name="source_vendor">headset protocol</string>

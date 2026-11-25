@@ -59,7 +59,8 @@ object FastPair {
             if (i >= m.payload.size) return null
             val raw = m.payload[i].toInt() and 0xFF
             val v = raw and 0x7F
-            return if (v == 0x7F || v > 100) BatteryLevel(null) else BatteryLevel(v, charging = (raw and 0x80) != 0)
+            val charging = (raw and 0x80) != 0
+            return if (v == 0x7F || v > 100) BatteryLevel(null, charging = if (v == 0x7F && charging) true else null) else BatteryLevel(v, charging = charging)
         }
         return if (m.payload.size == 1) {
             BatteryStatus(single = level(0), source = DataSource.FAST_PAIR_STREAM, timestampMillis = now)
@@ -99,19 +100,31 @@ object FastPair {
         return ActiveComponents(right = (v and 1) != 0, left = (v and 2) != 0)
     }
 
-    /** PSM of the L2CAP Message Stream read from the Fast Pair GATT characteristic; must lie in the LE dynamic range. */
-    fun parsePsm(b: ByteArray): Int? {
-        fun ok(v: Int) = v in 0x0080..0x00FF
-        return when (b.size) {
-            1 -> (b[0].toInt() and 0xFF).takeIf(::ok)
-            2 -> {
-                val le = (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8)
-                val be = ((b[0].toInt() and 0xFF) shl 8) or (b[1].toInt() and 0xFF)
-                when { ok(le) -> le; ok(be) -> be; else -> null }
-            }
-            else -> null
+    /**
+     * Fast Pair "L2CAP PSM" GATT characteristic (FE2C1239): exactly 3 bytes, `state | PSM uint16`.
+     * State 0 = unknown (re-read a limited number of times), 1 = ready, 2 = unavailable. A ready PSM must lie in 0x0080..0x00FF.
+     * The byte order of the uint16 is not stated for the observed value 01 00 A1, so it is read big-endian
+     * (0x00A1 = 161, matching the real headset); a little-endian reading (0xA100) is outside the allowed range and is rejected.
+     */
+    sealed interface PsmState {
+        data class Ready(val psm: Int) : PsmState
+        data object Unknown : PsmState
+        data object Unavailable : PsmState
+        data object Invalid : PsmState
+    }
+
+    fun parsePsmState(b: ByteArray): PsmState {
+        if (b.size != 3) return PsmState.Invalid
+        val psm = ((b[1].toInt() and 0xFF) shl 8) or (b[2].toInt() and 0xFF)
+        return when (b[0].toInt() and 0xFF) {
+            0 -> if (psm in 0..0xFFFF) PsmState.Unknown else PsmState.Invalid
+            1 -> if (psm in 0x0080..0x00FF) PsmState.Ready(psm) else PsmState.Invalid
+            2 -> PsmState.Unavailable
+            else -> PsmState.Invalid
         }
     }
+
+    fun parsePsm(b: ByteArray): Int? = (parsePsmState(b) as? PsmState.Ready)?.psm
 }
 
 data class ActiveComponents(val left: Boolean, val right: Boolean)
@@ -186,7 +199,8 @@ object FastPairAdvert {
         fun level(k: Int): BatteryLevel {
             val raw = data[i + k].toInt() and 0xFF
             val v = raw and 0x7F
-            return if (v == 0x7F || v > 100) BatteryLevel(null) else BatteryLevel(v, charging = (raw and 0x80) != 0)
+            val charging = (raw and 0x80) != 0
+            return if (v == 0x7F || v > 100) BatteryLevel(null, charging = if (v == 0x7F && charging) true else null) else BatteryLevel(v, charging = charging)
         }
         return if (count == 1) BatteryStatus(single = level(0), source = DataSource.FAST_PAIR_ADVERT, timestampMillis = now)
         else BatteryStatus(left = level(0), right = level(1), case = if (count == 3) level(2) else null, source = DataSource.FAST_PAIR_ADVERT, timestampMillis = now)
@@ -194,16 +208,37 @@ object FastPairAdvert {
 }
 
 object BatteryMerge {
-    private const val PER_COMPONENT_GRACE_MILLIS = 5 * 60_000L
 
     private fun BatteryStatus.perComponent() = left != null || right != null || case != null
 
     /** Chooses which reading to show when several sources report. Never invents values. */
     fun prefer(current: BatteryStatus?, incoming: BatteryStatus): BatteryStatus {
-        if (current == null || !current.hasAnyValue) return incoming
+        if (current == null || !current.hasAnyValue) return stamp(incoming)
         if (!incoming.hasAnyValue) return current
-        if (incoming.perComponent() || !current.perComponent()) return incoming
-        // current is per-component, incoming is a single value: keep the richer reading while it is fresh.
-        return if (incoming.timestampMillis - current.timestampMillis > PER_COMPONENT_GRACE_MILLIS) incoming else current
+        if (incoming.perComponent() && current.perComponent()) return mergeComponents(current, incoming)
+        if (incoming.perComponent() || !current.perComponent()) return stamp(incoming)
+        // current is per-component, incoming is a single value: a single BLE Battery Service value never replaces component readings.
+        return current
+    }
+
+    private fun stamp(b: BatteryStatus): BatteryStatus {
+        fun BatteryLevel?.s() = this?.let { if (it.updatedMillis == null) it.copy(updatedMillis = b.timestampMillis) else it }
+        return b.copy(left = b.left.s(), right = b.right.s(), case = b.case.s(), single = b.single.s())
+    }
+
+    /** Component by component: a report without a percentage keeps the last known one (marked), a known one replaces it. */
+    private fun mergeComponents(cur: BatteryStatus, inc: BatteryStatus): BatteryStatus {
+        fun one(c: BatteryLevel?, i: BatteryLevel?): BatteryLevel? {
+            if (i == null) return c?.let { if (it.percent != null) it.copy(lastKnown = true) else it }
+            val now = i.updatedMillis ?: inc.timestampMillis
+            if (i.percent != null) return i.copy(lastKnown = false, updatedMillis = now)
+            val keep = c?.percent
+            return if (keep != null) BatteryLevel(keep, i.charging ?: c.charging, lastKnown = true, updatedMillis = c.updatedMillis)
+            else BatteryLevel(null, i.charging, updatedMillis = now)
+        }
+        return BatteryStatus(
+            left = one(cur.left, inc.left), right = one(cur.right, inc.right), case = one(cur.case, inc.case),
+            single = inc.single ?: cur.single, source = inc.source, timestampMillis = inc.timestampMillis,
+        )
     }
 }

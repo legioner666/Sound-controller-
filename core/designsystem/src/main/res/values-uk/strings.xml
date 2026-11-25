@@ -37,6 +37,8 @@
     <string name="battery_headset">Навушники</string>
     <string name="battery_charging">заряджається</string>
     <string name="battery_no_reading">немає даних</string>
+    <string name="battery_inactive">неактивний</string>
+    <string name="battery_last_known">останнє відоме</string>
     <string name="battery_none_yet">Від цих навушників ще немає даних про заряд. Значення з’являються лише тоді, коли навушники їх передають.</string>
     <string name="source_note">Джерело: %1$s · %2$s</string>
     <string name="source_vendor">протокол навушників</string>

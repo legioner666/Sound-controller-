@@ -85,9 +85,11 @@ class CoreDevicesTest {
     @Test fun batteryMergeKeepsRicherFreshReading() {
         val rich = BatteryStatus(left = BatteryLevel(50), right = BatteryLevel(60), source = DataSource.FAST_PAIR_STREAM, timestampMillis = 0)
         val single = BatteryStatus(single = BatteryLevel(55), source = DataSource.BLE_BATTERY_SERVICE, timestampMillis = 1000)
-        assertEquals(rich, BatteryMerge.prefer(rich, single))
+        assertEquals(rich.left!!.percent, BatteryMerge.prefer(rich, single).left!!.percent)
+        // TASK 006: a single BLE Battery Service value never replaces component readings, however old they are.
         val later = single.copy(timestampMillis = 10 * 60_000L)
-        assertEquals(later, BatteryMerge.prefer(rich, later))
+        val merged = BatteryMerge.prefer(rich, later)
+        assertEquals(50, merged.left!!.percent); assertEquals(60, merged.right!!.percent)
     }
 
     @Test fun catalogMatchesExactNamesOnly() {

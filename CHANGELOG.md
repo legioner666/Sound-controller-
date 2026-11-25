@@ -1,5 +1,13 @@
 # Журнал змін
 
+## 0.6 — TASK 006 (battery & L2CAP hotfix)
+- **L2CAP PSM**: the FE2C1239 characteristic is parsed per the Fast Pair BLE spec as exactly 3 bytes `state | PSM uint16` (00 unknown, 01 ready, 02 unavailable; ready PSM 0x0080–0x00FF). Real value `01 00 A1` = ready, PSM 161. The old 1/2-byte parser rejected it, so L2CAP never opened. Secure L2CAP only, on the actual GATT endpoint.
+- **L2CAP lifecycle**: after the RFCOMM stream closes, wait (bounded) for GATT, re-read an "unknown" PSM up to 3 times, at most 3 attempts per session with back-off; no endless loop; JBL GATT control untouched.
+- **Battery model**: component-wise merge. A report without a percentage keeps the last known value (marked "last known" in the UI); charging, percent and time update independently; charging with an unknown level (0xFF) is kept; unknown is never shown as 0 %. A single BLE Battery Service value never replaces Left/Right/Case readings. RFCOMM close does not erase readings.
+- UI: ⚡ charging, "not active" for the inactive earbud (inactive ≠ physically disconnected), "last known".
+- Tests: PSM vector table, the real 0.5.6 battery packets, the three battery vectors from the task, last-known/charging/source-conflict cases, RFCOMM-close → L2CAP integration, bounded retries. Not physically verified: L2CAP on the real device.
+
+
 ## 0.5 — TASK 005 (JBL AA hotfix + Fast Pair hardening)
 - **JBL H-AA decoder**: `AA 91 len 12` reports with slots 01 ANC / 02 Ambient / 03 TalkThru; slot 04 (value 0x07 on Tune Beam 2) is logged and never interpreted. All five real RX vectors decode; incomplete, duplicate, unknown-slot, out-of-range and contradictory frames are rejected and never confirm the channel.
 - `AA EE 01 <cmd>` is a separate response type: logged with diagnostics, never a success ACK, never confirms a command or the control channel.

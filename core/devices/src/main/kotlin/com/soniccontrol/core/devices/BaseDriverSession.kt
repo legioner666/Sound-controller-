@@ -169,12 +169,44 @@ abstract class BaseDriverSession(
         return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
     }
 
+    private var l2capAttempts = 0
+    private companion object {
+        const val MAX_L2CAP_ATTEMPTS = 3
+        const val PSM_READS = 3
+        const val GATT_WAIT_MILLIS = 30_000L
+    }
+
+    /**
+     * L2CAP Message Stream through the PSM characteristic of the actual GATT endpoint (secure channel, read-only).
+     * Waits a bounded time for GATT, re-reads an "unknown" PSM a few times, and makes at most [MAX_L2CAP_ATTEMPTS] tries
+     * per session, so a headset that refuses can never cause an endless reconnect loop. Never touches the JBL control channel.
+     */
     private suspend fun openFastPairL2cap(): BluetoothTransport? {
-        if (StandardUuids.FAST_PAIR_SERVICE !in link.gattServices()) return null
-        val psm = link.readCharacteristic(StandardUuids.FAST_PAIR_SERVICE, StandardUuids.FAST_PAIR_PSM)?.let { FastPair.parsePsm(it) } ?: return null
-        val raw = link.openL2cap(psm, writable = false) ?: return null
-        log(EventCategory.RFCOMM, "Fast Pair Message Stream open (L2CAP PSM $psm, listen-only)")
-        return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+        while (l2capAttempts < MAX_L2CAP_ATTEMPTS) {
+            l2capAttempts++
+            val up = kotlinx.coroutines.withTimeoutOrNull(GATT_WAIT_MILLIS) { link.gattState.first { it == ChannelState.CONFIRMED } }
+            if (up == null) { log(EventCategory.RFCOMM, "L2CAP: GATT endpoint not available (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)"); continue }
+            if (StandardUuids.FAST_PAIR_SERVICE !in link.gattServices()) { log(EventCategory.RFCOMM, "L2CAP: endpoint has no Fast Pair service"); return null }
+            var psm: Int? = null
+            for (read in 1..PSM_READS) {
+                val raw = link.readCharacteristic(StandardUuids.FAST_PAIR_SERVICE, StandardUuids.FAST_PAIR_PSM)
+                when (val st = raw?.let { FastPair.parsePsmState(it) }) {
+                    is FastPair.PsmState.Ready -> { psm = st.psm; break }
+                    FastPair.PsmState.Unknown -> { log(EventCategory.RFCOMM, "L2CAP PSM state unknown (read $read/$PSM_READS)"); kotlinx.coroutines.delay(1_000) }
+                    FastPair.PsmState.Unavailable -> { log(EventCategory.RFCOMM, "L2CAP PSM state: unavailable"); return null }
+                    FastPair.PsmState.Invalid, null -> { log(EventCategory.RFCOMM, "L2CAP PSM characteristic invalid or unreadable (${raw?.size ?: -1} bytes)"); return null }
+                }
+            }
+            if (psm == null) continue
+            val raw = link.openL2cap(psm, writable = false)
+            if (raw != null) {
+                log(EventCategory.RFCOMM, "Fast Pair Message Stream open (L2CAP PSM $psm, secure, listen-only)")
+                return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+            }
+            log(EventCategory.RFCOMM, "L2CAP PSM $psm did not open (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)")
+            kotlinx.coroutines.delay(2_000L * l2capAttempts)
+        }
+        return null
     }
 
     /** Reads stream frames; the one allowed request (active components) is sent only with experimental features on. */

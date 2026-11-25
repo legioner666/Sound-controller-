@@ -172,7 +172,7 @@ fun Banner(text: String, kind: BannerKind = BannerKind.INFO, actionLabel: String
 
 /** Ring gauge for one battery component. Shows "—" when there is no real reading. */
 @Composable
-fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modifier, diameter: Int = 84) {
+fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modifier, diameter: Int = 84, active: Boolean? = null) {
     val pct = level?.percent
     val animated by animateFloatAsState(targetValue = (pct ?: 0) / 100f, animationSpec = tween(700), label = "battery")
     val track = MaterialTheme.colorScheme.surfaceVariant
@@ -198,8 +198,10 @@ fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modif
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         AnimatedVisibility(level?.charging == true) {
-            Text(charging, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text("⚡ $charging", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
+        if (active == false) Text(stringResource(R.string.battery_inactive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (level?.lastKnown == true && pct != null) Text(stringResource(R.string.battery_last_known), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -102,6 +102,8 @@ fun DashboardScreen(
                     name = device.headphone.displayName,
                     status = stringResource(R.string.hero_status_line, connectionBrief(device), controlSummary(device.links)),
                     battery = device.headphone.battery,
+                    leftActive = device.headphone.active?.left,
+                    rightActive = device.headphone.active?.right,
                     details = buildList {
                         device.headphone.remainingMinutes?.let { add(stringResource(R.string.hero_remaining, it / 60, it % 60)) }
                         device.headphone.active?.let { a ->

@@ -42,6 +42,9 @@ class FakeLink(
     val adverts: Flow<ManufacturerAdvert> = emptyFlow(),
 ) : DeviceLink {
     var closed = false
+    var l2cap: BluetoothTransport? = null
+    val l2capRequests = mutableListOf<Int>()
+    override suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? { l2capRequests += psm; return l2cap }
     val opened = mutableListOf<UUID>()
     val suggested = mutableListOf<Pair<String, String?>>()
     var openedWritable: Boolean? = null

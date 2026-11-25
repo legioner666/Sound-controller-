@@ -27,7 +27,11 @@ enum class DataSource {
 }
 
 /** One battery component. [percent] null = the device said "no reading" (e.g. earbud docked). */
-data class BatteryLevel(val percent: Int?, val charging: Boolean? = null) {
+/**
+ * One battery component. [percent] null = unknown (never shown as 0 %). [lastKnown] means the percentage is carried over
+ * from an earlier reading because the latest report did not contain one; [updatedMillis] is when the reading was taken.
+ */
+data class BatteryLevel(val percent: Int?, val charging: Boolean? = null, val lastKnown: Boolean = false, val updatedMillis: Long? = null) {
     init {
         require(percent == null || percent in 0..100) { "percent out of range: $percent" }
     }
