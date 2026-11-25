@@ -1,5 +1,12 @@
 # Журнал змін
 
+## 0.8 — TASK 008 (Sonic Music & background)
+- **Music player** (Media3 ExoPlayer + MediaSessionService): local library through MediaStore, import through the system file picker, MP3/FLAC/WAV/AAC/M4A/OGG within the phone's decoders, search (case/accent-insensitive), sorting, albums/artists/folders, playlists, favourites, queue, shuffle/repeat, saved queue restored paused, mini player on every screen, full-screen player with sleep timer, bass boost (if the phone supports it) and the headphone's listening modes.
+- **Background**: playback service (lock screen, media buttons, audio focus, auto-pause when headphones disconnect, no start after reboot) and a separate `connectedDevice` foreground service for headphone monitoring (battery, charging, ANC, reconnect state; stoppable from the notification; user setting).
+- Equaliser/balance are the existing software effects attached to the player's audio session — no duplicate effect code.
+- Tests: library search/sort/group, codec round-trip and corruption tolerance, repository persistence, sleep timer, notification text. See `docs/PLAYER.md` for the list of features not yet verified on a device.
+
+
 ## 0.7 — TASK 007 (live device state)
 - **Root cause (by code analysis; not yet confirmed on the phone)**: the UI path was already a single live flow (`session.state` → `SessionManager.active` → `collectAsStateWithLifecycle`). The data feeding it stopped: the Fast Pair stream closes ~5 s after opening and was never re-opened, L2CAP never opened (fixed in 0.6), and after a GATT loss the link kept a dead client and a "tried" flag, so nothing ever reconnected and the JBL vendor channel stayed bound to the dead GATT.
 - **GATT recovery** (all drivers, in `BaseDriverSession`): loss is detected, then 5 bounded attempts with back-off (3/10/30/60/120 s); sources are restarted without piling up subscriptions; JBL releases the dead channel and opens a fresh one once. Audio is never touched.

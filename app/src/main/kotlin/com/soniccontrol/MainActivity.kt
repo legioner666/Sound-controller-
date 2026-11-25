@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -63,6 +64,9 @@ import com.soniccontrol.feature.equalizer.EqualizerScreen
 import com.soniccontrol.feature.gestures.GesturesScreen
 import com.soniccontrol.feature.noisecontrol.NoiseControlScreen
 import com.soniccontrol.feature.settings.SettingsScreen
+import com.soniccontrol.feature.player.MiniPlayer
+import com.soniccontrol.feature.player.MusicScreen
+import com.soniccontrol.feature.player.NowPlayingScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,10 +90,13 @@ class MainActivity : ComponentActivity() {
 private enum class NavTab(val route: String, val label: Int, val icon: ImageVector) {
     HOME("home", R.string.tab_home, Icons.Outlined.Home),
     DEVICES("devices", R.string.tab_devices, Icons.Outlined.Headphones),
+    MUSIC("music", R.string.tab_music, Icons.Outlined.MusicNote),
     SOUND("sound", R.string.tab_sound, Icons.Outlined.GraphicEq),
     LAB("lab", R.string.tab_lab, Icons.Outlined.Science),
     SETTINGS("settings", R.string.tab_settings, Icons.Outlined.Settings),
 }
+
+private const val PLAYER_ROUTE = "player"
 
 private enum class SoundPage { NOISE, EQ, GESTURES, AUTOMATION }
 private enum class LabPage { DIAGNOSTICS, BATTERY }
@@ -122,6 +129,9 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
+          Column {
+            val playerState by container.player.state.collectAsStateWithLifecycle()
+            if (playerState.current != null && current != PLAYER_ROUTE) MiniPlayer(container.player, onOpen = { nav.navigate(PLAYER_ROUTE) { launchSingleTop = true } })
             NavigationBar {
                 NavTab.entries.forEach { t ->
                     NavigationBarItem(
@@ -137,6 +147,7 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                     )
                 }
             }
+          }
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -150,6 +161,10 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                         onRequestPermissions = requestPermissions,
                     )
                 }
+                composable(NavTab.MUSIC.route) {
+                    MusicScreen(container.library, container.player, onOpenPlayer = { nav.navigate(PLAYER_ROUTE) { launchSingleTop = true } })
+                }
+                composable(PLAYER_ROUTE) { NowPlayingScreen(container.player, controller, onClose = { nav.popBackStack() }) }
                 composable(NavTab.DEVICES.route) { DevicesScreen(controller, onRequestPermissions = requestPermissions) }
                 composable(NavTab.SOUND.route) {
                     val active by controller.active.collectAsStateWithLifecycle()

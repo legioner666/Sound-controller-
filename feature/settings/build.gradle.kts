@@ -13,4 +13,5 @@ dependencies {
     implementation(project(":core:protocol"))
     implementation(project(":core:database"))
     implementation(project(":core:audio"))
+    implementation(libs.androidx.activity.compose)
 }

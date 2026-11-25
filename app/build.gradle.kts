@@ -13,7 +13,7 @@ android {
         minSdk = 29 // Android 10
         targetSdk = 36 // Android 16
         versionCode = runNumber
-        versionName = "0.7.$runNumber"
+        versionName = "0.8.$runNumber"
     }
 
     signingConfigs {
@@ -86,6 +86,7 @@ dependencies {
         ":drivers:apple", ":drivers:nothing", ":drivers:xiaomi",
         ":feature:dashboard", ":feature:devices", ":feature:equalizer", ":feature:noisecontrol", ":feature:gestures",
         ":feature:automation", ":feature:battery", ":feature:diagnostics", ":feature:settings",
+        ":core:musiclibrary", ":core:player", ":core:background", ":feature:player",
     ).forEach { implementation(project(it)) }
 
     implementation(libs.androidx.core.ktx)

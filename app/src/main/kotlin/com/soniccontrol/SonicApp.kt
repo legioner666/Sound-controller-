@@ -6,6 +6,8 @@ import com.soniccontrol.core.audio.SystemEqualizer
 import com.soniccontrol.core.database.SonicDatabase
 import com.soniccontrol.core.devices.DriverRegistry
 import com.soniccontrol.core.diagnostics.DiagnosticLog
+import com.soniccontrol.core.player.LibraryController
+import com.soniccontrol.core.player.PlayerConnection
 import com.soniccontrol.drivers.apple.AppleDriver
 import com.soniccontrol.drivers.bose.BoseDriver
 import com.soniccontrol.drivers.generic.GenericDriver
@@ -40,7 +42,14 @@ class AppContainer(app: Application) {
 
     val systemEq = SystemEqualizer()
 
+    val library = LibraryController(app, scope)
+    val player = PlayerConnection(app)
+    val backgroundMonitoring = BackgroundMonitoring(app, scope, db, controller)
+
     init {
+        backgroundMonitoring.start()
+        // A saved queue shows up in the mini player (paused) without starting any music.
+        scope.launch { if (library.repository.data.value.queue != null) player.connect() }
         // Keep the phone equaliser in step with the saved settings and the selected profile.
         scope.launch {
             combine(db.settings, db.eqProfiles) { s, profiles -> Triple(s, profiles.firstOrNull { it.id == s.eqProfileId } ?: profiles.first(), s.balance) }

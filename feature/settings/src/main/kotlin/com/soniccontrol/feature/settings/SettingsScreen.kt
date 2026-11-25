@@ -45,6 +45,8 @@ fun SettingsScreen(db: SonicDatabase, appVersion: String) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var confirmExperimental by remember { mutableStateOf(false) }
+    // The notification permission only decides whether the monitoring notification is visible; monitoring still works without it.
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
 
     SonicScreen(title = stringResource(R.string.settings_title)) {
         item {
@@ -73,6 +75,10 @@ fun SettingsScreen(db: SonicDatabase, appVersion: String) {
                 }
                 ToggleRow(stringResource(R.string.settings_fast_pair), stringResource(R.string.settings_fast_pair_body), settings.fastPairListening) {
                     scope.launch { db.setFastPairListening(it) }
+                }
+                ToggleRow(stringResource(R.string.settings_background), stringResource(R.string.settings_background_body), settings.backgroundMonitoring) {
+                    if (it && android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    scope.launch { db.setBackgroundMonitoring(it) }
                 }
                 ToggleRow(stringResource(R.string.settings_experimental), stringResource(R.string.settings_experimental_body), settings.experimental) {
                     if (it) confirmExperimental = true else scope.launch { db.setExperimental(false) }

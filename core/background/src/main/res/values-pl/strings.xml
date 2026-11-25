@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="monitor_channel">Monitorowanie słuchawek</string>
+    <string name="monitor_title">Sonic Control</string>
+    <string name="monitor_waiting">Oczekiwanie na słuchawki…</string>
+    <string name="monitor_left">L</string>
+    <string name="monitor_right">P</string>
+    <string name="monitor_case">Etui</string>
+    <string name="monitor_headset">Słuchawki</string>
+    <string name="monitor_charging">ładowanie</string>
+    <string name="monitor_stale">ostatnie znane wartości</string>
+    <string name="monitor_reconnecting">ponowne łączenie</string>
+    <string name="monitor_unknown">?</string>
+    <string name="monitor_stop">Zatrzymaj monitorowanie</string>
+</resources>

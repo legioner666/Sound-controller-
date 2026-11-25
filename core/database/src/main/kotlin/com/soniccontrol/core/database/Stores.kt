@@ -25,6 +25,8 @@ data class AppSettings(
     val experimental: Boolean = false,
     val autoReconnect: Boolean = true,
     val fastPairListening: Boolean = true,
+    /** Foreground notification that keeps headphone monitoring alive in the background (user-controlled). */
+    val backgroundMonitoring: Boolean = true,
     val lastDevice: String? = null,
     val onboardingDone: Boolean = false,
     /** Phone (software) equaliser, independent of the headphones. */
@@ -44,6 +46,7 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
         val experimental = booleanPreferencesKey("experimental")
         val autoReconnect = booleanPreferencesKey("auto_reconnect")
         val fastPair = booleanPreferencesKey("fast_pair_listen")
+        val backgroundMonitoring = booleanPreferencesKey("background_monitoring")
         val lastDevice = stringPreferencesKey("last_device")
         val onboarding = booleanPreferencesKey("onboarding_done")
         val eqProfiles = stringPreferencesKey("eq_profiles")
@@ -60,6 +63,7 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
             experimental = p[K.experimental] ?: false,
             autoReconnect = p[K.autoReconnect] ?: true,
             fastPairListening = p[K.fastPair] ?: true,
+            backgroundMonitoring = p[K.backgroundMonitoring] ?: true,
             lastDevice = p[K.lastDevice],
             onboardingDone = p[K.onboarding] ?: false,
             systemEq = p[K.systemEq] ?: false,
@@ -80,6 +84,7 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
     suspend fun setExperimental(v: Boolean) = context.store.edit { it[K.experimental] = v }
     suspend fun setAutoReconnect(v: Boolean) = context.store.edit { it[K.autoReconnect] = v }
     suspend fun setFastPairListening(v: Boolean) = context.store.edit { it[K.fastPair] = v }
+    suspend fun setBackgroundMonitoring(v: Boolean) = context.store.edit { it[K.backgroundMonitoring] = v }
     suspend fun setLastDevice(address: String?) = context.store.edit { if (address == null) it.remove(K.lastDevice) else it[K.lastDevice] = address }
     suspend fun setOnboardingDone() = context.store.edit { it[K.onboarding] = true }
     suspend fun setSystemEq(v: Boolean) = context.store.edit { it[K.systemEq] = v }
