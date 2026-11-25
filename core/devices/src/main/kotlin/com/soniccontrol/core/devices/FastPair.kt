@@ -69,10 +69,10 @@ object FastPair {
     }
 
     fun parseFirmware(m: Message): String? =
-        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_FIRMWARE) String(m.payload, Charsets.US_ASCII).trim('\u0000', ' ') else null
+        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_FIRMWARE) String(m.payload, Charsets.UTF_8).trim('\u0000', ' ') else null
 
     fun parseModelId(m: Message): String? =
-        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_MODEL_ID && m.payload.isNotEmpty()) hex(m.payload) else null
+        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_MODEL_ID && m.payload.size == 3) hex(m.payload) else null
 
     private fun hex(b: ByteArray) = b.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase() }
 
@@ -150,7 +150,7 @@ class FastPairSession(private val clock: () -> Long) {
                 FastPair.CODE_BATTERY -> FastPair.parseBattery(m, clock())?.let { FastPairEvent.Battery(it) }
                 FastPair.CODE_BATTERY_TIME -> FastPair.parseRemainingMinutes(m)?.let { FastPairEvent.RemainingMinutes(it) }
                 FastPair.CODE_ACTIVE -> FastPair.parseActive(m)?.let { FastPairEvent.Active(it) }
-                FastPair.CODE_FIRMWARE -> FastPair.parseFirmware(m)?.takeIf { it.isNotBlank() && it.all { c -> c.code in 0x20..0x7E } }?.let { FastPairEvent.Firmware(it) }
+                FastPair.CODE_FIRMWARE -> FastPair.parseFirmware(m)?.takeIf { it.isNotBlank() && it.none { c -> c.isISOControl() || c == '\uFFFD' } }?.let { FastPairEvent.Firmware(it) }
                 else -> FastPairEvent.Unknown(m.group, m.code)
             }
         }

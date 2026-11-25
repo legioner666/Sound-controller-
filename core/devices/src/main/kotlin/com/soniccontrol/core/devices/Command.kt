@@ -28,6 +28,8 @@ class DeviceCommand(
     /** Null means the protocol sends no reply; the outcome is then [CommandOutcome.SentUnconfirmed]. */
     val matcher: ResponseMatcher?,
     val note: String = "",
+    /** A frame that answers this command with a refusal/error (not a success). Ends the wait early as [CommandOutcome.Unsupported]. */
+    val negativeMatcher: ResponseMatcher? = null,
 )
 
 sealed interface CommandOutcome {
@@ -83,7 +85,7 @@ class CommandExecutor(
                 } else {
                     coroutineScope {
                         val reply = async(start = CoroutineStart.UNDISPATCHED) {
-                            transport.incoming.first { matcher.matches(it) }
+                            transport.incoming.first { matcher.matches(it) || command.negativeMatcher?.matches(it) == true }
                         }
                         transport.write(command.bytes)
                         val response = withTimeoutOrNull(command.timeoutMillis) { reply.await() }
@@ -91,6 +93,9 @@ class CommandExecutor(
                             reply.cancel()
                             log(EventCategory.COMMAND, "${command.id}: no reply in ${command.timeoutMillis} ms")
                             CommandOutcome.Timeout
+                        } else if (!matcher.matches(response)) {
+                            log(EventCategory.COMMAND, "${command.id}: device answered with an error frame (meaning not established)", response.toHex())
+                            CommandOutcome.Unsupported("device answered with an error frame")
                         } else {
                             CommandOutcome.Confirmed(response)
                         }

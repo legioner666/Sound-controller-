@@ -87,6 +87,8 @@ class SonicController(
     val experimental: StateFlow<Boolean> = db.settings.map { it.experimental }.stateIn(scope, SharingStarted.Eagerly, false)
     private val fastPair: StateFlow<Boolean> = db.settings.map { it.fastPairListening }.stateIn(scope, SharingStarted.Eagerly, true)
 
+    /** Manual LE endpoint choices are bound to the classic address of the headset they were chosen for. */
+    private val manualByDevice = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val manualEndpoint = MutableStateFlow<String?>(null)
     private val attemptCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -129,7 +131,7 @@ class SonicController(
             val device = runCatching { a.getRemoteDevice(address) }.getOrNull() ?: return null
             val name = runCatching { device.name }.getOrNull()
             val variant = attemptCounts.merge(address, 1, Int::plus)?.minus(1) ?: 0
-            return AndroidDeviceLink(context, a, device, scope, log, clock, s, brandHints(name), { manualEndpoint.value }, variant)
+            return AndroidDeviceLink(context, a, device, scope, log, clock, s, brandHints(name), { manualByDevice[address] }, variant)
         }
     }
 
@@ -281,11 +283,14 @@ class SonicController(
     }
 
     override fun selectEndpoint(address: String?) {
+        val device = active.value?.identity?.address ?: return
+        if (address == null) manualByDevice.remove(device) else manualByDevice[device] = address
         manualEndpoint.value = address
-        active.value?.identity?.address?.let { a -> sessions.connect(a) }
+        sessions.connect(device)
     }
 
     override fun refreshAttempts() {
+        manualEndpoint.value = active.value?.identity?.address?.let { manualByDevice[it] }
         _attempts.value = androidLink()?.attempts.orEmpty()
         _endpoints.value = rankEndpoints()
     }
@@ -294,7 +299,7 @@ class SonicController(
         val redactor = Redactor(
             salt = salt ?: UUID.randomUUID().toString(),
             knownAddresses = devices.value.map { it.address } + listOfNotNull(active.value?.identity?.address) +
-                scanner?.observations().orEmpty().map { it.address } + listOfNotNull(manualEndpoint.value) + androidLink()?.endpointAddresses.orEmpty(),
+                scanner?.observations().orEmpty().map { it.address } + manualByDevice.values + androidLink()?.endpointAddresses.orEmpty(),
             knownNames = devices.value.mapNotNull { it.name } + listOfNotNull(active.value?.identity?.name),
         )
         val a = active.value

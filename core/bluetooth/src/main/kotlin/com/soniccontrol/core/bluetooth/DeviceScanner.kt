@@ -50,6 +50,8 @@ class DeviceScanner(
     /** Every advertiser seen in the last [maxAgeMillis], including unnamed ones (the Lab and the endpoint resolver need them). */
     fun observations(maxAgeMillis: Long = 90_000): List<BleObservation> {
         val now = clock()
+        observed.entries.removeIf { now - it.value.lastSeenMillis > 5 * 60_000 } // keep the cache small and short-lived
+        fastPairData.keys.retainAll(observed.keys)
         return observed.values.filter { now - it.lastSeenMillis <= maxAgeMillis }
     }
 
@@ -145,8 +147,11 @@ class DeviceScanner(
     suspend fun scanFor(millis: Long) {
         val wasScanning = _scanning.value
         if (!wasScanning) startScan()
-        kotlinx.coroutines.delay(millis)
-        if (!wasScanning) stopScan()
+        try {
+            kotlinx.coroutines.delay(millis)
+        } finally {
+            if (!wasScanning) stopScan() // also on cancellation
+        }
     }
 
     fun stopScan() {

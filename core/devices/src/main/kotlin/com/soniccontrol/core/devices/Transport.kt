@@ -84,6 +84,9 @@ interface DeviceLink {
      */
     suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean = false
 
+    /** The session is about to open the Fast Pair stream; GATT planning waits briefly for it so the reported LE address can be used first. */
+    fun expectFastPairStream(expected: Boolean) {}
+
     /** Opens an L2CAP channel on [psm] (Fast Pair Message Stream over L2CAP). Null when unavailable. */
     suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? = null
 

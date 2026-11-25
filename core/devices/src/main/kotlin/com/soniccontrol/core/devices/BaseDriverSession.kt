@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -96,6 +97,7 @@ abstract class BaseDriverSession(
      */
     protected fun startUniversalSources() {
         launch { listenFastPairAdverts() }
+        link.expectFastPairStream(env.fastPairListening.value && StandardUuids.FAST_PAIR_MESSAGE_STREAM in link.sdpUuids())
         if (!env.fastPairListening.value) {
             launch { readGattSources() }
             return
@@ -104,7 +106,16 @@ abstract class BaseDriverSession(
             val stream = openFastPairStream()
             if (stream != null) launch { consumeStream(stream) }
             launch { readGattSources() }
-            if (stream == null) openFastPairL2cap()?.let { launch { consumeStream(it) } }
+            if (stream == null) {
+                openFastPairL2cap()?.let { launch { consumeStream(it) } }
+            } else {
+                // RFCOMM that closes early (the headset or the system dropped it): fall back to L2CAP once.
+                launch {
+                    stream.state.first { it != TransportState.Open }
+                    log(EventCategory.RFCOMM, "Fast Pair RFCOMM stream closed; trying L2CAP")
+                    openFastPairL2cap()?.let { launch { consumeStream(it) } }
+                }
+            }
         }
     }
 
@@ -181,7 +192,12 @@ abstract class BaseDriverSession(
         t.incoming.collect { frame ->
             val e = fastPairSession.onFrame(frame)
             if (e == null) { log(EventCategory.ERROR, "Fast Pair: invalid frame ignored", frame); return@collect }
-            log(EventCategory.RX, "Fast Pair ${e::class.simpleName}", frame)
+            if (e is FastPairEvent.Unknown) {
+                // Unknown messages can carry identifiers (Find Hub EID, account-derived data): only group, code and length are kept.
+                log(EventCategory.RX, "Fast Pair unknown group=0x${e.group.toString(16)} code=0x${e.code.toString(16)} length=${frame.size - 4}")
+            } else {
+                log(EventCategory.RX, "Fast Pair ${e::class.simpleName}", frame)
+            }
             update { it.copy(fastPair = fastPairSession.capabilities) }
             when (e) {
                 is FastPairEvent.ModelId -> { streamModelId = e.hex; update { it.copy(modelId = e.hex) } }

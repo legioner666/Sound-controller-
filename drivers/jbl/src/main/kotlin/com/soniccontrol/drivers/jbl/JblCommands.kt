@@ -15,14 +15,18 @@ object JblCommands {
 
     fun p3Version(s: SupportStatus) = DeviceCommand("jbl.aa.version", CommandKind.READ, s, JblProtocol.P3.versionGet(), 2000,
         p3(JblProtocol.P3::isVersionReply))
+    /** `AA EE 01 <cmd>` echoing the command we just sent: the headset answered, but not with the expected report. */
+    private fun errorFor(cmd: Int) = ResponseMatcher { b -> JblProtocol.P3.errorReplyFor(b) == cmd }
+
     fun p3EnableNotifications(s: SupportStatus) = DeviceCommand("jbl.aa.notify-on", CommandKind.WRITE, s, JblProtocol.P3.enableNotifications(), 1500,
-        p3(JblProtocol.P3::isNotifyAck))
+        p3(JblProtocol.P3::isNotifyAck), negativeMatcher = errorFor(JblProtocol.P3.CMD_NOTIFY_CONTROL))
     fun p3Battery(s: SupportStatus) = DeviceCommand("jbl.aa.battery", CommandKind.READ, s, JblProtocol.P3.batteryGet(), 1500,
-        p3(JblProtocol.P3::isBatteryReport))
+        p3(JblProtocol.P3::isBatteryReport), negativeMatcher = errorFor(JblProtocol.P3.CMD_BATTERY))
     fun p3ModeGet(s: SupportStatus) = DeviceCommand("jbl.aa.mode.get", CommandKind.READ, s, JblProtocol.P3.listeningModeGet(), 1500,
         p3(JblProtocol.P3::isListeningModeReport))
     fun p3ModeSet(s: SupportStatus, mode: NoiseMode) = DeviceCommand("jbl.aa.mode.set.${mode.name.lowercase()}", CommandKind.WRITE, s,
-        JblProtocol.P3.listeningModeSet(mode), 2000, p3 { JblProtocol.P3.parseListeningMode(it) == mode })
+        JblProtocol.P3.listeningModeSet(mode), 2000, p3 { JblProtocol.P3.parseListeningMode(it) == mode },
+        negativeMatcher = errorFor(JblProtocol.P3.CMD_LISTENING_MODE))
 
     /** Reply must be a valid Protocol 4 packet carrying at least one requested id (or the first packet of a multi-packet reply). */
     fun p4Get(s: SupportStatus, ids: List<Int>) = DeviceCommand("jbl.p4.get.${ids.joinToString("-")}", CommandKind.READ, s,

@@ -1,5 +1,14 @@
 # Журнал змін
 
+## 0.5 — TASK 005 (JBL AA hotfix + Fast Pair hardening)
+- **JBL H-AA decoder**: `AA 91 len 12` reports with slots 01 ANC / 02 Ambient / 03 TalkThru; slot 04 (value 0x07 on Tune Beam 2) is logged and never interpreted. All five real RX vectors decode; incomplete, duplicate, unknown-slot, out-of-range and contradictory frames are rejected and never confirm the channel.
+- `AA EE 01 <cmd>` is a separate response type: logged with diagnostics, never a success ACK, never confirms a command or the control channel.
+- Control channel is re-selected once when GATT comes up after the session started (reconnect via the Fast Pair 0x0302 address); no duplicate sessions or subscriptions.
+- Privacy: unknown Fast Pair messages (e.g. 030A, 030B) are logged as group/code/length only.
+- Regression tests from the real capture (`JblRealCaptureTest`).
+- Not done yet: system volume, L/R test, test tone, profiles, battery history, compatibility catalog UI, P2 research. No model is marked Verified.
+
+
 
 
 ## 0.4 — TASK 004 (Google Fast Pair Message Stream)

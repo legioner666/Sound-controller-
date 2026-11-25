@@ -53,6 +53,10 @@ object JblProtocol {
         const val CMD_LISTENING_MODE = 0x91
         const val CMD_FACTORY_RESET = 0x95
         const val CMD_NOTIFY_CONTROL = 0x9B
+        /** Observed reply `AA EE 01 <command>` to commands this model does not answer normally. Meaning not established. */
+        const val CMD_ERROR_REPLY = 0xEE
+        /** Listening-mode report slot 4 (seen as `04 07`): its meaning is unknown and it is never interpreted. */
+        const val SLOT_UNKNOWN = 4
         const val OP_SET = 0x10
         const val OP_GET = 0x11
         const val OP_REPORT = 0x12
@@ -114,13 +118,45 @@ object JblProtocol {
             val ok = when (f.command) {
                 CMD_VERSION_REPLY -> f.payload.isNotEmpty()
                 CMD_BATTERY -> isBatteryReport(f) && f.payload.size >= 7
-                CMD_LISTENING_MODE -> isListeningModeReport(f) && f.payload.size >= 3 && f.payload.size % 2 == 1 &&
-                    (1 until f.payload.size step 2).all { f.payload.u8(it) in 1..3 && f.payload.u8(it + 1) <= 1 }
+                CMD_LISTENING_MODE -> isListeningModeReport(f) && f.payload.size >= 7 && f.payload.size % 2 == 1 && listeningPairsValid(f)
                 CMD_NOTIFY_CONTROL -> isNotifyAck(f)
                 else -> false
             }
             return if (ok) f else null
         }
+
+        /**
+         * Pairs after the 0x12 marker: slots 1..3 (ANC, Ambient, TalkThru) carry 0/1; each of 1..3 must appear exactly once.
+         * Slot 4 is accepted with any value and ignored. Any other slot id makes the frame invalid.
+         */
+        private fun listeningPairsValid(f: Frame): Boolean {
+            val seen = HashSet<Int>()
+            var i = 1
+            while (i + 1 < f.payload.size) {
+                val id = f.payload.u8(i); val v = f.payload.u8(i + 1)
+                when (id) {
+                    1, 2, 3 -> { if (v > 1 || !seen.add(id)) return false }
+                    SLOT_UNKNOWN -> Unit
+                    else -> return false
+                }
+                i += 2
+            }
+            return seen == setOf(1, 2, 3)
+        }
+
+        /** Slot 4 value of a valid report, kept for diagnostics only. */
+        fun unknownSlotValue(f: Frame): Int? {
+            var i = 1
+            while (i + 1 < f.payload.size) { if (f.payload.u8(i) == SLOT_UNKNOWN) return f.payload.u8(i + 1); i += 2 }
+            return null
+        }
+
+        /**
+         * `AA EE 01 <cmd>`: returns the echoed command byte. Exact framing only. This is not an acknowledgement:
+         * it neither confirms a command nor the control channel.
+         */
+        fun errorReplyFor(bytes: ByteArray): Int? =
+            if (bytes.size == 4 && bytes.u8(0) == HEADER && bytes.u8(1) == CMD_ERROR_REPLY && bytes.u8(2) == 1) bytes.u8(3) else null
 
         fun isVersionReply(f: Frame) = f.command == CMD_VERSION_REPLY
         fun isBatteryReport(f: Frame) = f.command == CMD_BATTERY && f.payload.isNotEmpty() && f.payload.u8(0) == 0x01
@@ -145,17 +181,18 @@ object JblProtocol {
             val slots = HashMap<Int, Int>()
             var i = 1
             while (i + 1 < f.payload.size) {
-                slots[f.payload.u8(i)] = f.payload.u8(i + 1)
+                val id = f.payload.u8(i)
+                if (id in 1..3 && slots.put(id, f.payload.u8(i + 1)) != null) return null // duplicate slot: contradictory
                 i += 2
             }
+            if (!slots.keys.containsAll(listOf(1, 2, 3))) return null // incomplete report: do not guess
             val on = listOf(slots[1] == 1, slots[2] == 1, slots[3] == 1)
             return when {
                 on.count { it } > 1 -> null // contradictory: do not guess
                 on[0] -> NoiseMode.ANC
                 on[1] -> NoiseMode.AMBIENT
                 on[2] -> NoiseMode.TALK_THRU
-                slots.containsKey(1) || slots.containsKey(2) -> NoiseMode.OFF
-                else -> null
+                else -> NoiseMode.OFF
             }
         }
     }

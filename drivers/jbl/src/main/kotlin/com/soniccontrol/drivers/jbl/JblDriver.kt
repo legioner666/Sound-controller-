@@ -25,6 +25,7 @@ import com.soniccontrol.core.devices.NoiseStatus
 import com.soniccontrol.core.devices.StandardUuids
 import com.soniccontrol.core.devices.SupportStatus
 import com.soniccontrol.core.diagnostics.EventCategory
+import kotlinx.coroutines.sync.withLock
 
 class JblDriver : HeadphoneDriver {
     override val id = JblCatalog.DRIVER_ID
@@ -80,15 +81,26 @@ internal class JblSession(
     private fun commandStatus(): SupportStatus =
         if (model != null && model.stack == stack) JblCatalog.statusFor(model) else SupportStatus.EXPERIMENTAL
 
+    private val controlMutex = kotlinx.coroutines.sync.Mutex()
+    private var controlStarted = false
+
     override suspend fun start() {
         startUniversalSources()
+        selectControlChannel()
+        // GATT can come up later (for example on the LE address a Fast Pair stream reports after a reconnect):
+        // run the selection again then, once, without duplicating sessions or subscriptions.
+        launch { link.gattState.collect { if (it == ChannelState.CONFIRMED) selectControlChannel() } }
+    }
+
+    private suspend fun selectControlChannel() = controlMutex.withLock {
+        if (controlStarted) return@withLock
         val services = link.gattServices()
         val sdp = link.sdpUuids()
         log(EventCategory.DRIVER, "GATT services: ${services.size}, SDP records: ${sdp.size}")
 
         when {
-            JblProtocol.HARMAN_SERVICE in services -> openHarman()
-            JblProtocol.AIROHA_RACE_RFCOMM in sdp || services.any { it.toString().startsWith(JblProtocol.AIROHA_GATT_PREFIX) } -> openRace()
+            JblProtocol.HARMAN_SERVICE in services -> { controlStarted = true; openHarman() }
+            JblProtocol.AIROHA_RACE_RFCOMM in sdp || services.any { it.toString().startsWith(JblProtocol.AIROHA_GATT_PREFIX) } -> { controlStarted = true; openRace() }
             else -> update {
                 it.copy(
                     protocol = "No JBL control channel found",
@@ -103,6 +115,7 @@ internal class JblSession(
 
     private suspend fun openHarman() {
         controlOpening()
+        update { it.copy(notices = it.notices - Notice.NO_CONTROL_CHANNEL - Notice.STANDARD_BATTERY_ONLY) }
         val raw = link.openGattChannel(JblProtocol.HARMAN_SERVICE, JblProtocol.HARMAN_NOTIFY, JblProtocol.HARMAN_WRITE)
             ?: link.openGattChannel(JblProtocol.HARMAN_SERVICE)
         if (raw == null) {
@@ -135,6 +148,11 @@ internal class JblSession(
     /** Frames identify the protocol and confirm the channel only after full validation. */
     private fun onHarmanFrame(frame: ByteArray) {
         log(EventCategory.RX, "harman", frame)
+        JblProtocol.P3.errorReplyFor(frame)?.let { cmd ->
+            // Observed `AA EE 01 <cmd>`. Semantics are not established: not an ACK, confirms neither the command nor the channel.
+            log(EventCategory.DRIVER, "headset answered AA EE for command 0x${cmd.toString(16)} (meaning unknown, not treated as success)")
+            return
+        }
         val p3 = JblProtocol.P3.validate(frame)
         val p4 = if (p3 == null) JblProtocol.P4.validate(frame) else null
         if (p3 == null && p4 == null) {
@@ -150,6 +168,7 @@ internal class JblSession(
             JblProtocol.P3.parseListeningMode(f)?.let { mode ->
                 update { it.copy(noise = NoiseStatus(mode, DataSource.VENDOR_PROTOCOL, env.clock())) }
             }
+            JblProtocol.P3.unknownSlotValue(f)?.let { v -> log(EventCategory.DRIVER, "listening mode slot 4 = 0x${v.toString(16)} (meaning not established, ignored)") }
         } else if (p4 != null) {
             if (stack == JblStack.UNIDENTIFIED) identified(JblStack.PROTOCOL_4)
             if (stack != JblStack.PROTOCOL_4) return
@@ -238,9 +257,9 @@ internal class JblSession(
         return when (stack) {
             JblStack.HARMAN_AA -> {
                 val exec = harmanExec ?: return CommandOutcome.NotConnected
-                val b = exec.execute(JblCommands.p3Battery(s))
                 val m = exec.execute(JblCommands.p3ModeGet(s))
-                if (b is CommandOutcome.Confirmed) b else m
+                val b = exec.execute(JblCommands.p3Battery(s))
+                if (m is CommandOutcome.Confirmed) m else b
             }
             JblStack.PROTOCOL_4 -> {
                 val exec = harmanExec ?: return CommandOutcome.NotConnected

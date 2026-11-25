@@ -34,9 +34,9 @@ class FakeTransport(var responder: (ByteArray) -> List<ByteArray> = { emptyList(
 class FakeLink(
     override val address: String = "00:11:22:33:44:55",
     override val name: String? = "Fake",
-    val services: Set<UUID> = emptySet(),
+    var services: Set<UUID> = emptySet(),
     val sdp: Set<UUID> = emptySet(),
-    val gattChannel: BluetoothTransport? = null,
+    var gattChannel: BluetoothTransport? = null,
     val rfcomm: Map<UUID, BluetoothTransport> = emptyMap(),
     val characteristics: Map<UUID, ByteArray> = emptyMap(),
     val adverts: Flow<ManufacturerAdvert> = emptyFlow(),
@@ -45,7 +45,8 @@ class FakeLink(
     val opened = mutableListOf<UUID>()
     val suggested = mutableListOf<Pair<String, String?>>()
     var openedWritable: Boolean? = null
-    override val gattState: StateFlow<ChannelState> = MutableStateFlow(if (services.isEmpty()) ChannelState.UNAVAILABLE else ChannelState.CONFIRMED)
+    val gattStateFlow = MutableStateFlow(if (services.isEmpty()) ChannelState.UNAVAILABLE else ChannelState.CONFIRMED)
+    override val gattState: StateFlow<ChannelState> get() = gattStateFlow
     override fun sdpUuids() = sdp
     override suspend fun gattServices() = services
     override suspend fun readCharacteristic(service: UUID, characteristic: UUID): ByteArray? = characteristics[characteristic]
