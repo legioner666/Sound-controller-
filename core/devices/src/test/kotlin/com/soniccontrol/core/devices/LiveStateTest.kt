@@ -27,7 +27,7 @@ class LiveStateTest {
     private val rf = StandardUuids.FAST_PAIR_MESSAGE_STREAM
 
     private fun TestScope.session(link: FakeLink, fastPair: Boolean = false): BaseDriverSession {
-        val env = DriverEnvironment(CoroutineScope(StandardTestDispatcher(testScheduler) + Job()), MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true)
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true)
         return object : BaseDriverSession(link, DeviceIdentity(link.address, "Fake"), env, "t", HeadphoneState("Fake")) {
             override suspend fun start() = startUniversalSources()
         }

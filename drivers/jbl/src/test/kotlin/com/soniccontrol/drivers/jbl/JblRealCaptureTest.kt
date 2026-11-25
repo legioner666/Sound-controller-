@@ -146,6 +146,7 @@ class JblRealCaptureTest {
         link.gattChannel = second; link.reconnectResults += true
         link.gattStateFlow.value = ChannelState.CLOSED
         testScheduler.advanceTimeBy(3_100); testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(20_000); testScheduler.runCurrent()      // notify-on answers AA EE, so its timeout passes before the GET
         assertTrue(first.closed)                                      // the dead channel was released
         assertEquals(1, second.written.count { Hex.encode(it) == "aa 91 01 11" })
         assertEquals(ChannelState.CONFIRMED, s.state.value.control)
