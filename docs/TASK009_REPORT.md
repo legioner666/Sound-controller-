@@ -24,7 +24,13 @@ Source: owner's physical test of v0.8.11 (diagnostics JSON, session timeline in 
 7. Independent time and source per battery component for percent and charging, and for the active components.
 8. Experimental `AA 06` battery decoder (id 0x1A/0x1B/0x1C = L/R/case, from the owner's v0.6.7 capture), applied only when the Fast Pair model is B484FB and firmware starts with 0.2.8; strict structure; the second capture `AA 06 05 00 02 00 06 01 05` is never interpreted. Charging-only reports are no longer dropped.
 
+## Round 3
+- **Sleep timer.** First 90 % of the time: normal playback. Last 10 %: linear fade of the app player's own volume to 0 (250 ms steps; the phone's system volume is never touched). The faded volume is not restored; only a new/cancelled timer (manual action) resets it. At the end: playback stops, queue saved paused, `AppShutdown.suppress()` (persisted flag) stops Bluetooth sessions (last device is kept), the device monitor service, the audio profile monitor and all notifications, and closes the UI (`finishAndRemoveTask`). Both services, the auto-reconnect, audio-profile events and manual connect refuse to start while the flag is set; it is cleared only when `MainActivity` is opened by hand. Runs on the playback service's main-thread handler (service is foreground while playing, wake lock held), so it works with a locked screen.
+- **AA 06 reached nothing before.** `JblProtocol.P3.validate()` rejected command 0x06 ("frame not recognised, ignored"), so the previous round's decoder was dead code. Fixed; new session tests push the real v0.6.7 packet and assert the reactive battery state (including a second update), and that other model/firmware and the unknown packet change nothing.
+- **Dashboard** status line now shows audio (connected / disconnected / unknown) and control (connected / reading only / reconnecting / unavailable) from the same `ControlStatus` as the notification; active-earbud text is labelled "last known" when control is lost and the data is older than 90 s.
+
 ## Still open (honest list)
+- Sleep timer lives in the playback service: if Android kills that service while music is paused, the timer is lost (no AlarmManager backup).
 - Physical scenarios from TASK 009 (case in/out per earbud, BT off/on, lock screen, music, 60 min, 20 reconnects) are not tested.
 - `AA 06` mapping L/R/case is inferred from one capture (right and case match Fast Pair); left is unconfirmed; id 0x06 meaning unknown.
 - Fast Pair spec text could not be fetched; PSM byte order is from the owner's/GPT's table.

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="link_audio_brief_off">Dźwięk rozłączony</string>
+    <string name="link_audio_brief_unknown">Dźwięk: stan nieznany</string>
+    <string name="control_connected">Sterowanie połączone</string>
+    <string name="control_data_only">Tylko odczyt danych</string>
+    <string name="control_reconnecting">Sterowanie łączy się ponownie</string>
+    <string name="control_unavailable">Sterowanie niedostępne</string>
+    <string name="hero_active_last_known"> (ostatnio znane)</string>
     <string name="source_vendor_native">natywne powiadomienie JBL (eksperymentalne)</string>
     <string name="tab_music">Muzyka</string>
     <string name="settings_background">Monitorowanie w tle</string>

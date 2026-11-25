@@ -38,6 +38,7 @@ class DeviceMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (AppShutdown.isSuppressed(this)) { stopSelf(); return START_NOT_STICKY }   // sleep timer ended: no restart until the app is opened
         if (intent?.action == ACTION_STOP) {
             DeviceMonitor.source?.onStopRequested()
             stopSelf()

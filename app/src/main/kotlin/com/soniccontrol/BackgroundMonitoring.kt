@@ -58,7 +58,7 @@ class BackgroundMonitoring(
     fun start() {
         DeviceMonitor.source = this
         scope.launch {
-            combine(db.settings.map { it.backgroundMonitoring }.distinctUntilChanged(), controller.active.map { it != null }.distinctUntilChanged()) { on, has -> on && has }
+            combine(db.settings.map { it.backgroundMonitoring }.distinctUntilChanged(), controller.active.map { it != null }.distinctUntilChanged(), com.soniccontrol.core.background.AppShutdown.suppressed) { on, has, off -> on && has && !off }
                 .distinctUntilChanged()
                 .collect { want -> if (want && canStart()) DeviceMonitorService.start(context) else DeviceMonitorService.stop(context) }
         }

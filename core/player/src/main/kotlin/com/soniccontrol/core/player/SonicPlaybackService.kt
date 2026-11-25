@@ -33,13 +33,22 @@ class SonicPlaybackService : MediaSessionService() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var timer: SleepTimer
     private val timerTick = Runnable { onTimerFired() }
+    private val fadeTick = object : Runnable {
+        override fun run() {
+            if (timer.remainingMillis() == null) return
+            player.volume = timer.fadeFactor()
+            if (timer.fadeFactor() > 0f) main.postDelayed(this, FADE_STEP_MILLIS)
+        }
+    }
     private var bass: BassBoost? = null
     private var bassStrength = 0
     private var announcedSession = 0
     private val saveRunnable = Runnable { saveQueueNow() }
+    private companion object { const val FADE_STEP_MILLIS = 250L }
 
     override fun onCreate() {
         super.onCreate()
+        if (com.soniccontrol.core.background.AppShutdown.isSuppressed(this)) { stopSelf(); return }   // sleep timer ended: stay off until the app is opened by hand
         timer = SleepTimer(System::currentTimeMillis)
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), /* handleAudioFocus = */ true)
@@ -58,7 +67,8 @@ class SonicPlaybackService : MediaSessionService() {
         announceAudioSession(player.audioSessionId)
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        if (com.soniccontrol.core.background.AppShutdown.isSuppressed(this)) null else session
 
     /** Swiping the app away stops the service unless music is actually playing. */
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -67,7 +77,8 @@ class SonicPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        main.removeCallbacks(timerTick); main.removeCallbacks(saveRunnable)
+        if (!::player.isInitialized) { super.onDestroy(); return }   // started while suppressed: nothing was created
+        main.removeCallbacks(timerTick); main.removeCallbacks(fadeTick); main.removeCallbacks(saveRunnable)
         saveQueueNow()
         releaseBass()
         announceAudioSessionClosed()
@@ -98,14 +109,30 @@ class SonicPlaybackService : MediaSessionService() {
 
     // ---- sleep timer / bass boost -------------------------------------------------------------------------------
 
+    /**
+     * Timer end: playback stops completely, the queue is saved (paused), and the whole app is switched off — device monitoring,
+     * Bluetooth sessions, notifications, the UI — and may not restart until the user opens the app again. The faded volume is NOT
+     * restored here; this service instance simply ends (a new one starts at full volume only when the user starts it).
+     */
     private fun onTimerFired() {
-        if (timer.consumeIfExpired()) player.pause()
-        publishExtras()
+        if (!timer.consumeIfExpired()) { publishExtras(); return }
+        main.removeCallbacks(fadeTick)
+        player.volume = 0f
+        player.pause()
+        saveQueueNow()
+        player.stop()
+        com.soniccontrol.core.background.AppShutdown.suppress(this)   // stops monitoring + sessions, closes the UI (see SonicApp)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun setSleepTimer(minutes: Int) {
-        main.removeCallbacks(timerTick)
-        timer.set(minutes)?.let { main.postDelayed(timerTick, it) }
+        main.removeCallbacks(timerTick); main.removeCallbacks(fadeTick)
+        player.volume = 1f                                        // user changed or cancelled the timer: manual restore
+        timer.set(minutes)?.let { total ->
+            main.postDelayed(timerTick, total)
+            main.postDelayed(fadeTick, timer.fadeStartDelayMillis() ?: total)
+        }
         publishExtras()
     }
 

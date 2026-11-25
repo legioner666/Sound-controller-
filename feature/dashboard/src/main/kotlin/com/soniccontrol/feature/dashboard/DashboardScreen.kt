@@ -102,14 +102,16 @@ fun DashboardScreen(
             item {
                 HeadphoneHero(
                     name = device.headphone.displayName,
-                    status = stringResource(R.string.hero_status_line, connectionBrief(device), controlSummary(device.links)),
+                    status = stringResource(R.string.hero_status_line, connectionBrief(device), controlStatusLabel(device)),
                     battery = device.headphone.battery,
                     leftActive = device.headphone.active?.left,
                     rightActive = device.headphone.active?.right,
                     details = buildList {
+                        val activeStale = device.controlStatus.let { it == com.soniccontrol.core.devices.ControlStatus.RECONNECTING || it == com.soniccontrol.core.devices.ControlStatus.UNAVAILABLE } &&
+                            (device.headphone.activeUpdatedMillis?.let { System.currentTimeMillis() - it > 90_000L } ?: true)
                         device.headphone.remainingMinutes?.let { add(stringResource(R.string.hero_remaining, it / 60, it % 60)) }
                         device.headphone.active?.let { a ->
-                            add(stringResource(when { a.left && a.right -> R.string.hero_active_both; a.left -> R.string.hero_active_left; a.right -> R.string.hero_active_right; else -> R.string.hero_active_none }))
+                            add(stringResource(when { a.left && a.right -> R.string.hero_active_both; a.left -> R.string.hero_active_left; a.right -> R.string.hero_active_right; else -> R.string.hero_active_none }) + if (activeStale) stringResource(R.string.hero_active_last_known) else "")
                         }
                         device.headphone.firmware?.let { add(stringResource(R.string.hero_firmware, it)) }
                     },
@@ -184,8 +186,18 @@ fun DashboardScreen(
 @Composable
 private fun connectionBrief(d: ActiveDevice): String = when (d.links.audio) {
     com.soniccontrol.core.devices.AudioLinkState.CONNECTED -> stringResource(R.string.link_audio_brief_on)
-    else -> connectionLabel(d.connection)
+    com.soniccontrol.core.devices.AudioLinkState.DISCONNECTED -> stringResource(R.string.link_audio_brief_off)
+    com.soniccontrol.core.devices.AudioLinkState.UNKNOWN -> stringResource(R.string.link_audio_brief_unknown)
 }
+
+/** One status for control, derived from real channel state (never from "session active"); same source as the background notification. */
+@Composable
+private fun controlStatusLabel(d: ActiveDevice): String = stringResource(when (d.controlStatus) {
+    com.soniccontrol.core.devices.ControlStatus.CONNECTED -> R.string.control_connected
+    com.soniccontrol.core.devices.ControlStatus.DATA_ONLY -> R.string.control_data_only
+    com.soniccontrol.core.devices.ControlStatus.RECONNECTING -> R.string.control_reconnecting
+    com.soniccontrol.core.devices.ControlStatus.UNAVAILABLE -> R.string.control_unavailable
+})
 
 @Composable
 fun AvailabilityBanner(a: BluetoothAvailability, onRequestPermissions: () -> Unit) {

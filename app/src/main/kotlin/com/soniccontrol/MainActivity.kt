@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -71,8 +72,10 @@ import com.soniccontrol.feature.player.NowPlayingScreen
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.soniccontrol.core.background.AppShutdown.clear(this)   // a manual open ends the post-timer shutdown
         enableEdgeToEdge()
         val container = (application as SonicApp).container
+        lifecycleScope.launch { com.soniccontrol.core.background.AppShutdown.closeUi.collect { finishAndRemoveTask() } }
         setContent {
             val settings by container.db.settings.collectAsStateWithLifecycle()
             val dark = when (settings.theme) { ThemeMode.SYSTEM -> null; ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }

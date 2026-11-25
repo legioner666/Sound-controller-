@@ -164,4 +164,36 @@ class JblRealCaptureTest {
         assertEquals(before + 1, gets())
         assertTrue(ch.written.none { Hex.encode(it).startsWith("aa 91 07 10") })   // polling never sends SET commands
     }
+
+    private fun TestScope.jblFp(link: FakeLink): com.soniccontrol.core.devices.DriverSession {
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(true), MutableStateFlow(true), DiagnosticSink { }, { testScheduler.currentTime })
+        return JblDriver().createSession(link, DeviceIdentity("AA:BB:CC:00:11:22", "JBL Tune Beam 2"), env)
+    }
+
+    /** The real v0.6.7 packet must reach the reactive state; it was previously dropped by validate() as "not recognised". */
+    @Test fun nativeBatteryNotificationUpdatesTheReactiveStateForB484FB() = runTest(UnconfinedTestDispatcher()) {
+        val fp = FakeTransport()
+        val ch = deviceChannel()
+        val link = FakeLink(sdp = setOf(com.soniccontrol.core.devices.StandardUuids.FAST_PAIR_MESSAGE_STREAM), rfcomm = mapOf(com.soniccontrol.core.devices.StandardUuids.FAST_PAIR_MESSAGE_STREAM to fp),
+            services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = ch)
+        val s = jblFp(link); s.start()
+        fp.push(h("03 01 00 03 b4 84 fb")); fp.push(h("03 09 00 07 30 2e 32 2e 38 2e 30"))
+        assertEquals("B484FB", s.state.value.modelId?.uppercase()); assertEquals("0.2.8.0", s.state.value.firmware)
+        ch.push(h("aa 06 10 00 02 00 1a 02 00 64 00 1b 02 00 5d 00 1c 02 00 5b"))
+        val b = s.state.value.battery!!
+        assertEquals(listOf(100, 93, 91), listOf(b.left?.percent, b.right?.percent, b.case?.percent))
+        assertEquals(com.soniccontrol.core.devices.DataSource.VENDOR_NATIVE_EXPERIMENTAL, b.left?.source)
+        // a later notification with new values changes the flow value (earbud returned to the case)
+        ch.push(h("aa 06 10 00 02 00 1a 02 00 63 00 1b 02 00 5d 00 1c 02 00 5a"))
+        assertEquals(listOf(99, 93, 90), listOf(s.state.value.battery!!.left?.percent, s.state.value.battery!!.right?.percent, s.state.value.battery!!.case?.percent))
+    }
+
+    @Test fun nativeBatteryIsIgnoredForOtherModelsAndFirmware() = runTest(UnconfinedTestDispatcher()) {
+        val ch = deviceChannel()
+        val s = jbl(FakeLink(services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = ch)); s.start()   // model/firmware unknown
+        ch.push(h("aa 06 10 00 02 00 1a 02 00 64 00 1b 02 00 5d 00 1c 02 00 5b"))
+        assertNull(s.state.value.battery)
+        ch.push(h("aa 06 05 00 02 00 06 01 05"))                      // unknown semantics: never interpreted
+        assertNull(s.state.value.battery)
+    }
 }

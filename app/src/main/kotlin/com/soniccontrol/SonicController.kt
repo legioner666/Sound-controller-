@@ -202,8 +202,17 @@ class SonicController(
     private fun ready() = availability.value == BluetoothAvailability.READY && BluetoothPermissions.canConnect(context)
 
     /** On start: reconnect to the last device if Android has it connected for audio right now. */
+    /** Sleep timer ended: close the session and Bluetooth helpers WITHOUT forgetting the last device. Reversed only by [refreshAvailability] after a manual open. */
+    fun shutdown() {
+        sessions.disconnect()
+        scanner?.stopScan()
+        audioMonitor?.stop(); audioMonitor = null
+        log.log(EventCategory.CONNECTION, "shutdown: sleep timer ended; nothing restarts until the app is opened")
+    }
+
     private fun autoConnect() {
         val s = db.settings.value
+        if (com.soniccontrol.core.background.AppShutdown.suppressed.value) return
         if (!s.autoReconnect || active.value != null) return
         val last = s.lastDevice ?: devices.value.firstOrNull { it.audioConnected }?.address ?: return
         if (devices.value.any { it.address == last && it.audioConnected }) sessions.connect(last)
@@ -212,6 +221,7 @@ class SonicController(
     /** Audio profile (A2DP/HFP) state changed: this, not ACL or GATT, drives the audio link and the session lifecycle. */
     private fun onAudioProfile(address: String, state: AudioLinkState) {
         log.log(EventCategory.CONNECTION, "audio profile: $state", address = address)
+        if (com.soniccontrol.core.background.AppShutdown.suppressed.value) return
         scanner?.loadAudioConnected()
         if (state == AudioLinkState.UNKNOWN) return
         sessions.onAudioLink(address, state == AudioLinkState.CONNECTED)
@@ -227,6 +237,7 @@ class SonicController(
 
     /** Process-lifetime monitor (it holds only profile proxies and one receiver); started once Bluetooth is ready and permitted. */
     private fun ensureAudioMonitor() {
+        if (com.soniccontrol.core.background.AppShutdown.suppressed.value) return
         if (audioMonitor == null && adapter != null && BluetoothPermissions.canConnect(context)) {
             audioMonitor = com.soniccontrol.core.bluetooth.AudioProfileMonitor(context, adapter, ::onAudioProfile).also { it.start() }
         }
@@ -234,14 +245,14 @@ class SonicController(
 
     override fun refreshAvailability() {
         monitor.refresh()
-        if (ready()) ensureAudioMonitor()
+        if (ready()) { ensureAudioMonitor(); if (active.value == null) scope.launch { delay(800); autoConnect() } }
         if (ready()) { scanner?.loadBonded(); scanner?.loadAudioConnected() }
     }
 
     override fun startScan() { if (ready() && BluetoothPermissions.canScan(context)) scanner?.startScan() }
     override fun stopScan() { scanner?.stopScan() }
 
-    override fun connect(address: String) { if (ready()) sessions.connect(address) }
+    override fun connect(address: String) { if (ready() && !com.soniccontrol.core.background.AppShutdown.suppressed.value) sessions.connect(address) }
 
     override fun disconnect() {
         sessions.disconnect()

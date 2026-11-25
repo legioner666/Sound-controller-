@@ -155,6 +155,7 @@ object JblProtocol {
                 CMD_BATTERY -> isBatteryReport(f) && f.payload.size >= 7
                 CMD_LISTENING_MODE -> isListeningModeReport(f) && f.payload.size >= 7 && f.payload.size % 2 == 1 && listeningPairsValid(f)
                 CMD_NOTIFY_CONTROL -> isNotifyAck(f)
+                CMD_NATIVE -> f.payload.size >= 2          // envelope only; a body is interpreted solely by parseNativeBattery
                 else -> false
             }
             return if (ok) f else null

@@ -48,6 +48,16 @@ class AppContainer(app: Application) {
 
     init {
         backgroundMonitoring.start()
+        // Sleep timer ended: stop Bluetooth sessions and the device service; nothing restarts until the app is opened by hand.
+        scope.launch {
+            com.soniccontrol.core.background.AppShutdown.suppressed.collect { off ->
+                if (off) {
+                    controller.shutdown()
+                    com.soniccontrol.core.background.DeviceMonitorService.stop(app)
+                    (app.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).cancelAll()
+                }
+            }
+        }
         // A saved queue shows up in the mini player (paused) without starting any music.
         scope.launch { if (library.repository.data.value.queue != null) player.connect() }
         // Keep the phone equaliser in step with the saved settings and the selected profile.
@@ -68,6 +78,7 @@ class SonicApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.soniccontrol.core.background.AppShutdown.init(this)
         container = AppContainer(this)
     }
 }

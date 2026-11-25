@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="link_audio_brief_off">Аудіо відключено</string>
+    <string name="link_audio_brief_unknown">Аудіо: стан невідомий</string>
+    <string name="control_connected">Керування підключено</string>
+    <string name="control_data_only">Лише читання даних</string>
+    <string name="control_reconnecting">Керування відновлюється</string>
+    <string name="control_unavailable">Керування недоступне</string>
+    <string name="hero_active_last_known"> (останні відомі дані)</string>
     <string name="source_vendor_native">нативне сповіщення JBL (експериментально)</string>
     <string name="tab_music">Музика</string>
     <string name="settings_background">Фоновий моніторинг</string>
