@@ -16,6 +16,9 @@ object StandardUuids {
     val FAST_PAIR_SERVICE: UUID = sig(0xFE2C)
     /** Google Fast Pair Message Stream, RFCOMM. */
     val FAST_PAIR_MESSAGE_STREAM: UUID = UUID.fromString("df21fe2c-2515-4fdb-8886-f12c4d67927c")
+    /** Fast Pair GATT characteristics (service 0xFE2C): Model ID and Message Stream PSM. */
+    val FAST_PAIR_MODEL_ID: UUID = UUID.fromString("fe2c1233-8366-4814-8eb0-01de32100bea")
+    val FAST_PAIR_PSM: UUID = UUID.fromString("fe2c1239-8366-4814-8eb0-01de32100bea")
     val SPP: UUID = sig(0x1101)
     val A2DP_SINK: UUID = sig(0x110B)
     val HANDSFREE: UUID = sig(0x111E)

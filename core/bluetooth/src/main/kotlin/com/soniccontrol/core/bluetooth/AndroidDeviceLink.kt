@@ -36,6 +36,8 @@ import java.util.UUID
  * Dual-mode earbuds sometimes expose GATT under a separate LE address ("NAME-LE"); [leCandidates]
  * supplies such addresses from recent scan results.
  */
+private val MAC = Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
+
 @SuppressLint("MissingPermission")
 class AndroidDeviceLink(
     private val context: Context,
@@ -81,6 +83,64 @@ class AndroidDeviceLink(
 
     private fun record(a: ConnectionAttempt) { synchronized(attemptLog) { attemptLog += a } }
 
+    @Volatile private var streamEndpoint: String? = null
+    @Volatile private var streamModel: String? = null
+
+    /** Addresses this link has learned about, so exports can mask them. */
+    val endpointAddresses: List<String> get() = listOfNotNull(streamEndpoint)
+
+    override suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean {
+        if (closed || !MAC.matches(address)) return false
+        val previous = streamEndpoint
+        streamEndpoint = address.uppercase()
+        streamModel = modelIdHex
+        if (previous != null && previous != streamEndpoint) sink.log(DiagnosticEvent(clock(), EventCategory.CONNECTION, "headset reported a new LE address (rotation)", null, device.address))
+        if (gatt?.connected?.value == true) return true // never swap an endpoint that already works
+        gattTried = false
+        return gatt() != null
+    }
+
+    override suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? = channelLock.withLock {
+        if (closed) return@withLock null
+        for (insecure in listOf(false, true)) {
+            val started = clock()
+            val t = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                var socket: android.bluetooth.BluetoothSocket? = null
+                try {
+                    val sk = if (insecure) device.createInsecureL2capChannel(psm) else device.createL2capChannel(psm)
+                    socket = sk
+                    sk.connect()
+                    RfcommTransport(sk, java.util.UUID(0, psm.toLong()), writable, scope, sink, clock)
+                } catch (e: java.io.IOException) {
+                    runCatching { socket?.close() }
+                    record(ConnectionAttempt("l2cap", if (insecure) "insecure" else "secure", "classic-address", device.address,
+                        GattClient.bondName(device.bondState), clock() - started, null, null, RfcommTransport.classify(e.message), e.message))
+                    null
+                } catch (e: SecurityException) {
+                    runCatching { socket?.close() }
+                    null
+                }
+            }
+            if (t != null) {
+                record(ConnectionAttempt("l2cap", if (insecure) "insecure" else "secure", "classic-address", device.address,
+                    GattClient.bondName(device.bondState), clock() - started, null, null, "OK", "psm=$psm"))
+                synchronized(transports) { transports.add(t) }
+                return@withLock t
+            }
+        }
+        null
+    }
+
+    /** An endpoint learned from the headset itself must expose Fast Pair, and its Model ID must match when we know it. */
+    private suspend fun verify(c: GattClient, step: Step): String? {
+        if (step.kind != "fast-pair-endpoint") return null
+        val svc = c.services.firstOrNull { it.uuid == com.soniccontrol.core.devices.StandardUuids.FAST_PAIR_SERVICE } ?: return "WRONG_DEVICE_NO_FAST_PAIR"
+        val expected = streamModel ?: return null
+        val ch = svc.getCharacteristic(com.soniccontrol.core.devices.StandardUuids.FAST_PAIR_MODEL_ID) ?: return null
+        val got = c.read(ch)?.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase() }
+        return if (got != null && got.isNotEmpty() && !got.equals(expected, true)) "WRONG_DEVICE_MODEL_MISMATCH" else null
+    }
+
     private data class Step(val device: BluetoothDevice, val kind: String, val transport: Int, val timeout: Long)
 
     /**
@@ -99,6 +159,7 @@ class AndroidDeviceLink(
             .take(2).mapNotNull { c -> runCatching { adapter.getRemoteDevice(c.observation.address) }.getOrNull() }
         val manual = manualEndpoint()?.let { runCatching { adapter.getRemoteDevice(it) }.getOrNull() }
         val steps = ArrayList<Step>()
+        streamEndpoint?.let { a -> runCatching { adapter.getRemoteDevice(a) }.getOrNull() }?.let { steps += Step(it, "fast-pair-endpoint", le, 8_000) }
         manual?.let { steps += Step(it, "manual-le", le, 8_000) }
         resolved.forEach { steps += Step(it, "le-endpoint", le, 8_000) }
         val classicFirst = if (variant % 2 == 0) listOf(le, auto) else listOf(auto, le)
@@ -124,6 +185,12 @@ class AndroidDeviceLink(
                 durationMillis = r.durationMillis, status = r.status, newState = r.newState, outcome = r.outcome,
                 detail = "services=${r.services}",
             ))
+            val wrong = if (r.ok) verify(c, step) else null
+            if (wrong != null) {
+                record(ConnectionAttempt("gatt", "LE", step.kind, step.device.address, GattClient.bondName(step.device.bondState), 0, null, null, wrong))
+                c.close()
+                continue
+            }
             if (r.ok) {
                 gatt = c
                 _gattState.value = ChannelState.CONFIRMED // services were discovered
@@ -184,7 +251,7 @@ class AndroidDeviceLink(
             if (writable && !openRfcommUp()) _rfcommState.value = ChannelState.FAILED
             return@withLock null
         }
-        synchronized(transports) { transports += t }
+        synchronized(transports) { transports.add(t) }
         if (writable) _rfcommState.value = ChannelState.OPEN
         scope.launch {
             t.state.collect { st ->

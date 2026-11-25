@@ -7,8 +7,23 @@ package com.soniccontrol.core.devices
 object FastPair {
     const val GROUP_DEVICE_INFO = 0x03
     const val CODE_MODEL_ID = 0x01
+    const val CODE_BLE_ADDRESS = 0x02
     const val CODE_BATTERY = 0x03
+    const val CODE_BATTERY_TIME = 0x04
+    const val CODE_ACTIVE_REQUEST = 0x05
+    const val CODE_ACTIVE = 0x06
     const val CODE_FIRMWARE = 0x09
+
+    /** Largest payload accepted from a Message Stream; anything bigger is treated as corruption and skipped. */
+    const val MAX_PAYLOAD = 256
+
+    /**
+     * The only frame Sonic Control ever writes to the stream: "active components request" (group 3, code 5, empty payload).
+     * It reads state and changes nothing on the headset. Written only when experimental features are enabled.
+     */
+    val ACTIVE_COMPONENTS_REQUEST: ByteArray = byteArrayOf(0x03, 0x05, 0x00, 0x00)
+
+    fun isAllowedWrite(frame: ByteArray): Boolean = frame.contentEquals(ACTIVE_COMPONENTS_REQUEST)
 
     data class Message(val group: Int, val code: Int, val payload: ByteArray) {
         override fun equals(other: Any?) =
@@ -22,6 +37,7 @@ object FastPair {
         var i = 0
         while (i + 4 <= bytes.size) {
             val len = ((bytes[i + 2].toInt() and 0xFF) shl 8) or (bytes[i + 3].toInt() and 0xFF)
+            if (len > MAX_PAYLOAD) { i += 1; continue } // corrupt header: resynchronise byte by byte instead of waiting for 64 KiB
             if (i + 4 + len > bytes.size) break
             out += bytes.copyOfRange(i, i + 4 + len)
             i += 4 + len
@@ -32,13 +48,13 @@ object FastPair {
     fun parse(frame: ByteArray): Message? {
         if (frame.size < 4) return null
         val len = ((frame[2].toInt() and 0xFF) shl 8) or (frame[3].toInt() and 0xFF)
-        if (frame.size != 4 + len) return null
+        if (len > MAX_PAYLOAD || frame.size != 4 + len) return null
         return Message(frame[0].toInt() and 0xFF, frame[1].toInt() and 0xFF, frame.copyOfRange(4, frame.size))
     }
 
     /** One byte per component: left, right, case (or one byte for a single battery). Bit 7 = charging; 0x7F = unknown. */
     fun parseBattery(m: Message, now: Long): BatteryStatus? {
-        if (m.group != GROUP_DEVICE_INFO || m.code != CODE_BATTERY || m.payload.isEmpty()) return null
+        if (m.group != GROUP_DEVICE_INFO || m.code != CODE_BATTERY || (m.payload.size != 1 && m.payload.size != 3)) return null
         fun level(i: Int): BatteryLevel? {
             if (i >= m.payload.size) return null
             val raw = m.payload[i].toInt() and 0xFF
@@ -56,7 +72,91 @@ object FastPair {
         if (m.group == GROUP_DEVICE_INFO && m.code == CODE_FIRMWARE) String(m.payload, Charsets.US_ASCII).trim('\u0000', ' ') else null
 
     fun parseModelId(m: Message): String? =
-        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_MODEL_ID) m.payload.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') } else null
+        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_MODEL_ID && m.payload.isNotEmpty()) hex(m.payload) else null
+
+    private fun hex(b: ByteArray) = b.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase() }
+
+    /** 0x0302: the headset's current BLE address, six bytes, most significant first. */
+    fun parseBleAddress(m: Message): String? =
+        if (m.group == GROUP_DEVICE_INFO && m.code == CODE_BLE_ADDRESS && m.payload.size == 6)
+            m.payload.joinToString(":") { (it.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase() } else null
+
+    /** 0x0304: remaining battery time in minutes, as one byte or a big-endian uint16. */
+    fun parseRemainingMinutes(m: Message): Int? {
+        if (m.group != GROUP_DEVICE_INFO || m.code != CODE_BATTERY_TIME) return null
+        return when (m.payload.size) {
+            1 -> m.payload[0].toInt() and 0xFF
+            2 -> ((m.payload[0].toInt() and 0xFF) shl 8) or (m.payload[1].toInt() and 0xFF)
+            else -> null
+        }
+    }
+
+    /** 0x0306: bit 0 = right bud active, bit 1 = left bud active. Other bits are not defined, so such a frame is rejected. */
+    fun parseActive(m: Message): ActiveComponents? {
+        if (m.group != GROUP_DEVICE_INFO || m.code != CODE_ACTIVE || m.payload.size != 1) return null
+        val v = m.payload[0].toInt() and 0xFF
+        if (v > 3) return null
+        return ActiveComponents(right = (v and 1) != 0, left = (v and 2) != 0)
+    }
+
+    /** PSM of the L2CAP Message Stream read from the Fast Pair GATT characteristic; must lie in the LE dynamic range. */
+    fun parsePsm(b: ByteArray): Int? {
+        fun ok(v: Int) = v in 0x0080..0x00FF
+        return when (b.size) {
+            1 -> (b[0].toInt() and 0xFF).takeIf(::ok)
+            2 -> {
+                val le = (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8)
+                val be = ((b[0].toInt() and 0xFF) shl 8) or (b[1].toInt() and 0xFF)
+                when { ok(le) -> le; ok(be) -> be; else -> null }
+            }
+            else -> null
+        }
+    }
+}
+
+data class ActiveComponents(val left: Boolean, val right: Boolean)
+
+/** What a headset has told us over the Message Stream; drives which fields the UI may show. */
+data class FastPairCapabilities(val codes: Set<Int> = emptySet()) {
+    val battery get() = FastPair.CODE_BATTERY in codes
+    val remainingTime get() = FastPair.CODE_BATTERY_TIME in codes
+    val activeComponents get() = FastPair.CODE_ACTIVE in codes
+    val bleAddress get() = FastPair.CODE_BLE_ADDRESS in codes
+}
+
+sealed interface FastPairEvent {
+    data class ModelId(val hex: String) : FastPairEvent
+    data class BleAddress(val address: String) : FastPairEvent
+    data class Battery(val status: BatteryStatus) : FastPairEvent
+    data class RemainingMinutes(val minutes: Int) : FastPairEvent
+    data class Active(val components: ActiveComponents) : FastPairEvent
+    data class Firmware(val version: String) : FastPairEvent
+    data class Unknown(val group: Int, val code: Int) : FastPairEvent
+}
+
+/** Decodes frames of one Message Stream and tracks which capabilities the headset has shown. Pure and JVM-testable. */
+class FastPairSession(private val clock: () -> Long) {
+    var capabilities = FastPairCapabilities()
+        private set
+
+    /** Null for a corrupt or invalid frame; such frames never change any state. */
+    fun onFrame(frame: ByteArray): FastPairEvent? {
+        val m = FastPair.parse(frame) ?: return null
+        val event: FastPairEvent? = when {
+            m.group != FastPair.GROUP_DEVICE_INFO -> FastPairEvent.Unknown(m.group, m.code)
+            else -> when (m.code) {
+                FastPair.CODE_MODEL_ID -> FastPair.parseModelId(m)?.let { FastPairEvent.ModelId(it) }
+                FastPair.CODE_BLE_ADDRESS -> FastPair.parseBleAddress(m)?.let { FastPairEvent.BleAddress(it) }
+                FastPair.CODE_BATTERY -> FastPair.parseBattery(m, clock())?.let { FastPairEvent.Battery(it) }
+                FastPair.CODE_BATTERY_TIME -> FastPair.parseRemainingMinutes(m)?.let { FastPairEvent.RemainingMinutes(it) }
+                FastPair.CODE_ACTIVE -> FastPair.parseActive(m)?.let { FastPairEvent.Active(it) }
+                FastPair.CODE_FIRMWARE -> FastPair.parseFirmware(m)?.takeIf { it.isNotBlank() && it.all { c -> c.code in 0x20..0x7E } }?.let { FastPairEvent.Firmware(it) }
+                else -> FastPairEvent.Unknown(m.group, m.code)
+            }
+        }
+        if (event != null && event !is FastPairEvent.Unknown) capabilities = FastPairCapabilities(capabilities.codes + m.code)
+        return event
+    }
 }
 
 /**

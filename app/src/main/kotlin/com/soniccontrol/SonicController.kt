@@ -294,7 +294,7 @@ class SonicController(
         val redactor = Redactor(
             salt = salt ?: UUID.randomUUID().toString(),
             knownAddresses = devices.value.map { it.address } + listOfNotNull(active.value?.identity?.address) +
-                scanner?.observations().orEmpty().map { it.address } + listOfNotNull(manualEndpoint.value),
+                scanner?.observations().orEmpty().map { it.address } + listOfNotNull(manualEndpoint.value) + androidLink()?.endpointAddresses.orEmpty(),
             knownNames = devices.value.mapNotNull { it.name } + listOfNotNull(active.value?.identity?.name),
         )
         val a = active.value
@@ -319,6 +319,13 @@ class SonicController(
         val diag = mapOf(
             "connectionAttempts" to attemptsOut, "bleObservations" to observations, "endpointCandidates" to resolver,
             "manualEndpointSelected" to (manualEndpoint.value != null),
+            "fastPair" to a?.let { d ->
+                mapOf(
+                    "modelId" to d.headphone.modelId, "capabilities" to d.headphone.fastPair?.codes?.map { c -> "0x03" + c.toString(16).padStart(2, '0') },
+                    "remainingMinutes" to d.headphone.remainingMinutes, "active" to d.headphone.active?.let { x -> mapOf("left" to x.left, "right" to x.right) },
+                    "streamEndpointLearned" to (androidLink()?.endpointAddresses?.isNotEmpty() == true),
+                )
+            },
             "bondState" to a?.identity?.address?.let { addr -> runCatching { adapter?.getRemoteDevice(addr)?.bondState }.getOrNull() }?.let { b -> if (b == BluetoothDevice.BOND_BONDED) "BONDED" else "NOT_BONDED" },
         )
         val device = (a?.let {

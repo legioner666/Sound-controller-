@@ -102,6 +102,13 @@ fun DashboardScreen(
                     name = device.headphone.displayName,
                     status = stringResource(R.string.hero_status_line, connectionBrief(device), controlSummary(device.links)),
                     battery = device.headphone.battery,
+                    details = buildList {
+                        device.headphone.remainingMinutes?.let { add(stringResource(R.string.hero_remaining, it / 60, it % 60)) }
+                        device.headphone.active?.let { a ->
+                            add(stringResource(when { a.left && a.right -> R.string.hero_active_both; a.left -> R.string.hero_active_left; a.right -> R.string.hero_active_right; else -> R.string.hero_active_none }))
+                        }
+                        device.headphone.firmware?.let { add(stringResource(R.string.hero_firmware, it)) }
+                    },
                 )
             }
             val advice = ConnectionAdvisor.advise(attempts, device.links)

@@ -78,6 +78,15 @@ interface DeviceLink {
     /** Passive BLE advertisements carrying manufacturer data of [companyId] (used for AirPods battery). */
     fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert>
 
+    /**
+     * The headset reported its current BLE address (Fast Pair 0x0302). Makes it the first GATT candidate for this link only,
+     * after checking that the endpoint belongs to a Fast Pair device (and to [modelIdHex] when known). True when GATT is open afterwards.
+     */
+    suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean = false
+
+    /** Opens an L2CAP channel on [psm] (Fast Pair Message Stream over L2CAP). Null when unavailable. */
+    suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? = null
+
     /** Connection attempts so far (for diagnostics and honest error messages). */
     val attempts: List<ConnectionAttempt> get() = emptyList()
 

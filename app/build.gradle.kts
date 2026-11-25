@@ -13,7 +13,7 @@ android {
         minSdk = 29 // Android 10
         targetSdk = 36 // Android 16
         versionCode = runNumber
-        versionName = "0.2.$runNumber"
+        versionName = "0.4.$runNumber"
     }
 
     signingConfigs {

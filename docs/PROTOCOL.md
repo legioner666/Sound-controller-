@@ -56,3 +56,18 @@ NC/ASM v2 блок `0x17`: GET `66 17`, SET `68 17 01 effect mode ambientMode le
 
 ## Ще не реалізовано
 Samsung (Galaxy Buds RFCOMM), Bose (BMAP), Soundcore, Huawei, OnePlus, Sennheiser, Edifier — лише розпізнавання моделі та Universal-функції. Еквалайзер, жести, просторовий звук — у жодного бренду ще немає перевірених команд у проєкті.
+
+
+## Google Fast Pair Message Stream (read-mostly, universal)
+Frame: `group u8 | code u8 | length u16 BE | payload`, group 0x03 = device information.
+| Code | Payload | Used for |
+|---|---|---|
+| 0x0301 | Model ID | identity check of a learned endpoint |
+| 0x0302 | 6 bytes, MSB first | priority GATT candidate (session only, masked in exports) |
+| 0x0303 | 1 or 3 bytes, bit 7 charging, 0x7F unknown | battery L/R/case |
+| 0x0304 | 1 byte or u16 BE, minutes | remaining time |
+| 0x0305 | empty (request) | the only write, experimental opt-in, exact bytes `03050000` |
+| 0x0306 | bit 0 right, bit 1 left | active earbuds |
+| 0x0309 | ASCII | firmware |
+Transports: RFCOMM `df21fe2c-2515-4fdb-8886-f12c4d67927c`, or L2CAP via PSM characteristic `FE2C1239-…` (service 0xFE2C).
+Status: Experimental until a real headset delivers validated frames to a third-party app. Deferred: 0x0308 platform, 0x030B Find Hub id (privacy).

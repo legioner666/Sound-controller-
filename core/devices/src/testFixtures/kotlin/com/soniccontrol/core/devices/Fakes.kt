@@ -43,13 +43,16 @@ class FakeLink(
 ) : DeviceLink {
     var closed = false
     val opened = mutableListOf<UUID>()
+    val suggested = mutableListOf<Pair<String, String?>>()
+    var openedWritable: Boolean? = null
     override val gattState: StateFlow<ChannelState> = MutableStateFlow(if (services.isEmpty()) ChannelState.UNAVAILABLE else ChannelState.CONFIRMED)
     override fun sdpUuids() = sdp
     override suspend fun gattServices() = services
     override suspend fun readCharacteristic(service: UUID, characteristic: UUID): ByteArray? = characteristics[characteristic]
     override suspend fun notifications(service: UUID, characteristic: UUID): Flow<ByteArray>? = null
     override suspend fun openGattChannel(service: UUID, notify: UUID?, write: UUID?) = gattChannel
-    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? { opened += uuid; return rfcomm[uuid] }
+    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? { opened += uuid; openedWritable = writable; return rfcomm[uuid] }
+    override suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean { suggested += address to modelIdHex; return false }
     override fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert> = adverts
     override suspend fun close() { closed = true }
 }

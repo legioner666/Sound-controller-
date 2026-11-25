@@ -284,5 +284,11 @@
     <string name="lab_hci_title">Dziennik Bluetooth HCI snoop</string>
     <string name="lab_hci_body">Aby poznać prawdziwy protokół, właściciel może nagrać komunikację aplikacji producenta ze słuchawkami: Ustawienia Androida → Opcje programisty → Włącz dziennik Bluetooth HCI snoop, następnie przez minutę używać aplikacji producenta i udostępnić dziennik z raportu o błędzie. Szczegóły w docs/HCI_SNOOP.md. Sonic Control sam nie czyta tego dziennika.</string>
     <string name="link_audio_brief_on">Dźwięk połączony</string>
+    <string name="hero_remaining">Pozostało: %1$d h %2$d min</string>
+    <string name="hero_active_both">Aktywne: obie słuchawki</string>
+    <string name="hero_active_left">Aktywna: lewa słuchawka</string>
+    <string name="hero_active_right">Aktywna: prawa słuchawka</string>
+    <string name="hero_active_none">Aktywnych brak (obie w spoczynku)</string>
+    <string name="hero_firmware">Oprogramowanie %1$s</string>
     <string name="settings_licenses">Licencje open source</string>
 </resources>

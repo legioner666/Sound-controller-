@@ -90,10 +90,27 @@ abstract class BaseDriverSession(
     }
 
     /** Starts the passive battery sources. Safe for any device: nothing is written to the headset. */
+    /**
+     * Order matters: the cheap Fast Pair stream goes first (it can reveal the LE address), then GATT.
+     * Without the stream, the L2CAP variant is tried through GATT. All of it is read-only.
+     */
     protected fun startUniversalSources() {
-        launch { readDeviceInformation(); readBleBatteryService() }
         launch { listenFastPairAdverts() }
-        if (env.fastPairListening.value) launch { listenFastPair() }
+        if (!env.fastPairListening.value) {
+            launch { readGattSources() }
+            return
+        }
+        launch {
+            val stream = openFastPairStream()
+            if (stream != null) launch { consumeStream(stream) }
+            launch { readGattSources() }
+            if (stream == null) openFastPairL2cap()?.let { launch { consumeStream(it) } }
+        }
+    }
+
+    private suspend fun readGattSources() {
+        readDeviceInformation()
+        readBleBatteryService()
     }
 
     /** Standard Device Information Service: firmware revision (read-only). Used for identification only. */
@@ -130,16 +147,54 @@ abstract class BaseDriverSession(
         }
     }
 
-    private suspend fun listenFastPair() {
-        if (link.sdpUuids().isNotEmpty() && StandardUuids.FAST_PAIR_MESSAGE_STREAM !in link.sdpUuids()) return
-        val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = false) ?: return
-        val t = track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
-        log(EventCategory.RFCOMM, "listening to Fast Pair Message Stream")
+    private val fastPairSession = FastPairSession(env.clock)
+    private var streamModelId: String? = null
+
+    private suspend fun openFastPairStream(): BluetoothTransport? {
+        if (link.sdpUuids().isNotEmpty() && StandardUuids.FAST_PAIR_MESSAGE_STREAM !in link.sdpUuids()) return null
+        val writable = env.experimentalEnabled.value
+        val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = writable) ?: return null
+        log(EventCategory.RFCOMM, "Fast Pair Message Stream open (RFCOMM, ${if (writable) "experimental request allowed" else "listen-only"})")
+        return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+    }
+
+    private suspend fun openFastPairL2cap(): BluetoothTransport? {
+        if (StandardUuids.FAST_PAIR_SERVICE !in link.gattServices()) return null
+        val psm = link.readCharacteristic(StandardUuids.FAST_PAIR_SERVICE, StandardUuids.FAST_PAIR_PSM)?.let { FastPair.parsePsm(it) } ?: return null
+        val raw = link.openL2cap(psm, writable = false) ?: return null
+        log(EventCategory.RFCOMM, "Fast Pair Message Stream open (L2CAP PSM $psm, listen-only)")
+        return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+    }
+
+    /** Reads stream frames; the one allowed request (active components) is sent only with experimental features on. */
+    private suspend fun consumeStream(t: BluetoothTransport) {
+        val answered = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        if (t.canWrite && env.experimentalEnabled.value && FastPair.isAllowedWrite(FastPair.ACTIVE_COMPONENTS_REQUEST)) {
+            launch {
+                runCatching { t.write(FastPair.ACTIVE_COMPONENTS_REQUEST) }
+                    .onSuccess { log(EventCategory.TX, "Fast Pair active components request", FastPair.ACTIVE_COMPONENTS_REQUEST) }
+                    .onFailure { log(EventCategory.ERROR, "Fast Pair request not sent: ${it.message}") }
+                val ok = kotlinx.coroutines.withTimeoutOrNull(3_000) { answered.await() } ?: false
+                if (!ok) log(EventCategory.INFO, "Fast Pair: no active components reply within 3 s")
+            }
+        }
         t.incoming.collect { frame ->
-            val m = FastPair.parse(frame) ?: return@collect
-            log(EventCategory.RX, "Fast Pair ${m.group}/${m.code}", frame)
-            FastPair.parseBattery(m, env.clock())?.let { acceptBattery(it) }
-            FastPair.parseFirmware(m)?.let { fw -> update { it.copy(firmware = it.firmware ?: fw) } }
+            val e = fastPairSession.onFrame(frame)
+            if (e == null) { log(EventCategory.ERROR, "Fast Pair: invalid frame ignored", frame); return@collect }
+            log(EventCategory.RX, "Fast Pair ${e::class.simpleName}", frame)
+            update { it.copy(fastPair = fastPairSession.capabilities) }
+            when (e) {
+                is FastPairEvent.ModelId -> { streamModelId = e.hex; update { it.copy(modelId = e.hex) } }
+                is FastPairEvent.Battery -> acceptBattery(e.status)
+                is FastPairEvent.Firmware -> update { it.copy(firmware = it.firmware ?: e.version) }
+                is FastPairEvent.RemainingMinutes -> update { it.copy(remainingMinutes = e.minutes) }
+                is FastPairEvent.Active -> { answered.complete(true); update { it.copy(active = e.components) } }
+                is FastPairEvent.BleAddress -> launch {
+                    // Priority GATT candidate for this session only; if GATT opens now, read the standard sources again.
+                    if (link.suggestEndpoint(e.address, streamModelId)) readGattSources()
+                }
+                is FastPairEvent.Unknown -> Unit
+            }
         }
     }
 

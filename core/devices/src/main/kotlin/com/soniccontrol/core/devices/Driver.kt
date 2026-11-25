@@ -34,6 +34,11 @@ data class HeadphoneState(
     /** Modes this device can be switched to, in display order. */
     val noiseModes: List<NoiseMode> = emptyList(),
     val firmware: String? = null,
+    /** From the Fast Pair Message Stream, when the headset provides it. Null = unknown, never a guess. */
+    val remainingMinutes: Int? = null,
+    val active: ActiveComponents? = null,
+    val modelId: String? = null,
+    val fastPair: FastPairCapabilities? = null,
     /** Short, human-readable protocol identification, shown in the Lab. */
     val protocol: String = "",
     /** Technical notes for the Lab (English, not localised). */

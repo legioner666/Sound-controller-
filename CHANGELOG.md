@@ -1,6 +1,17 @@
 # Журнал змін
 
 
+
+## 0.4 — TASK 004 (Google Fast Pair Message Stream)
+- Message Stream decoder extended: Model ID (0x0301), **BLE address (0x0302)**, battery L/R/case with charging (0x0303), remaining time in 1- or 2-byte form (0x0304), active components (0x0306), firmware (0x0309). Stateful `FastPairSession`, `FastPairCapabilities`.
+- Corrupt headers resynchronise byte by byte (payload cap 256), fragmented and coalesced buffers handled, invalid frames never change state, charge values 101–126 are "unknown".
+- RFCOMM stream is tried **first**, GATT after it. A BLE address from 0x0302 becomes the first GATT candidate **for that session only**; the endpoint must expose Fast Pair (0xFE2C) and its Model ID must match. Rotation is logged; a working GATT endpoint is never swapped.
+- L2CAP Message Stream through the GATT PSM characteristic as a read-only fallback (PSM must be in 0x0080–0x00FF).
+- Only one write exists: the "active components request" `03 05 00 00`, exact-bytes allowlist, experimental opt-in only, 3 s reply timeout. No AccountKey, no FHN, no firmware, no Google Play Services interference.
+- Home screen: remaining time, active earbuds, firmware; unknown stays unknown. Diagnostics: Fast Pair section, learned endpoints masked.
+- Tests: every vector from the task plus negative cases and session integration tests with fakes.
+- **Not verified:** whether a third-party Android app can open the Message Stream on a given headset (on Tune Beam 2 it closed instantly in v0.2.2), and the specification text itself could not be fetched by Claude; the layouts follow the task's tables.
+
 ## 0.3 — TASK 003 (after physical test on JBL Tune Beam 2)
 - Scan before connect; LE endpoints ranked by name twin, Fast Pair data, signal and connectability (never by name alone).
 - Ordered, budgeted attempts: manual endpoint → resolved LE endpoints → classic address LE/AUTO → BR/EDR last. GATT and RFCOMM open one after another.

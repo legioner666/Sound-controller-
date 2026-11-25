@@ -285,5 +285,11 @@
     <string name="lab_hci_title">Bluetooth HCI snoop log</string>
     <string name="lab_hci_body">To learn the real protocol, the owner can record the manufacturer’s app talking to the headphones: Android Settings → Developer options → Enable Bluetooth HCI snoop log, then use the manufacturer’s app for a minute and share the log from a bug report. Details are in docs/HCI_SNOOP.md. Sonic Control never reads this log itself.</string>
     <string name="link_audio_brief_on">Audio connected</string>
+    <string name="hero_remaining">Remaining: %1$d h %2$d min</string>
+    <string name="hero_active_both">Active: both earbuds</string>
+    <string name="hero_active_left">Active: left earbud</string>
+    <string name="hero_active_right">Active: right earbud</string>
+    <string name="hero_active_none">Active: none (both resting)</string>
+    <string name="hero_firmware">Firmware %1$s</string>
     <string name="settings_licenses">Open-source notices</string>
 </resources>

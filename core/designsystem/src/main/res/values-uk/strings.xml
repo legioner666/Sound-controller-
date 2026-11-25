@@ -284,5 +284,11 @@
     <string name="lab_hci_title">Журнал Bluetooth HCI snoop</string>
     <string name="lab_hci_body">Щоб дізнатися справжній протокол, власник може записати розмову застосунку виробника з навушниками: Налаштування Android → Для розробників → Увімкнути журнал Bluetooth HCI snoop, потім хвилину користуватися застосунком виробника й поділитися журналом із звіту про помилку. Подробиці — у docs/HCI_SNOOP.md. Sonic Control сам цей журнал не читає.</string>
     <string name="link_audio_brief_on">Аудіо підключено</string>
+    <string name="hero_remaining">Залишилось: %1$d год %2$d хв</string>
+    <string name="hero_active_both">Активні: обидва навушники</string>
+    <string name="hero_active_left">Активний: лівий навушник</string>
+    <string name="hero_active_right">Активний: правий навушник</string>
+    <string name="hero_active_none">Активних немає (обидва в спокої)</string>
+    <string name="hero_firmware">Прошивка %1$s</string>
     <string name="settings_licenses">Ліцензії відкритого коду</string>
 </resources>

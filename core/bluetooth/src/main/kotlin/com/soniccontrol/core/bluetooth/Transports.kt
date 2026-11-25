@@ -64,7 +64,7 @@ class GattChannelTransport(
 
 /** RFCOMM socket located by SDP UUID. Listen-only when [writable] is false. */
 @SuppressLint("MissingPermission")
-class RfcommTransport private constructor(
+class RfcommTransport internal constructor(
     private val socket: BluetoothSocket,
     private val uuid: UUID,
     override val canWrite: Boolean,

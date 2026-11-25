@@ -25,7 +25,7 @@ import com.soniccontrol.core.devices.ConnectionAdvice
 
 /** Home-screen header: generic earbuds drawing, one-line name, short status and three separate battery gauges. */
 @Composable
-fun HeadphoneHero(name: String, status: String, battery: BatteryStatus?) {
+fun HeadphoneHero(name: String, status: String, battery: BatteryStatus?, details: List<String> = emptyList()) {
     SonicCard {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             EarbudsIllustration(Modifier.fillMaxWidth().height(110.dp))
@@ -41,6 +41,7 @@ fun HeadphoneHero(name: String, status: String, battery: BatteryStatus?) {
                     BatteryGauge(stringResource(R.string.battery_case), battery?.case, diameter = 76)
                 }
             }
+            details.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (battery == null || !battery.hasAnyValue) {
                 Text(stringResource(R.string.hero_no_data), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
