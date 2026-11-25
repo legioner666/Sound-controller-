@@ -83,6 +83,8 @@ fun DashboardScreen(
     val attempts by lab.attempts.collectAsStateWithLifecycle()
     val volume by audio.volume.collectAsStateWithLifecycle()
     LaunchedEffect(active?.identity?.address) { audio.refreshVolume() }
+    // Returning to the app re-checks freshness with confirmed reads only (TASK 007); the state itself is a live flow.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { if (active != null) controller.refresh() }
     val links = active?.links
     LaunchedEffect(links?.gatt, links?.rfcomm, links?.control, active?.connection) { lab.refreshAttempts() }
 

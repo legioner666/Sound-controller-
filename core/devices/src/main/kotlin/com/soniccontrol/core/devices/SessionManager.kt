@@ -167,7 +167,7 @@ class SessionManager(
             _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Failed("Bluetooth unavailable"), HeadphoneState(identity.name ?: address))
             return
         }
-        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock))
+        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock, periodicRefresh = true))
         val audio = links.audioState(address)
         running = Running(myGen, address, session, link, sessionScope)
         _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Starting, session.state.value, LinkStatus(audio = audio))
@@ -176,7 +176,7 @@ class SessionManager(
         sessionScope.launch {
             combine(session.state, link.gattState, link.rfcommState) { st, g, r -> Triple(st, g, r) }.collect { (st, g, r) ->
                 if (gen != myGen) return@collect
-                _active.update { it?.copy(headphone = st, links = it.links.copy(gatt = g, rfcomm = r, control = st.control)) }
+                _active.update { it?.copy(headphone = st, links = it.links.copy(gatt = g, rfcomm = r, control = st.control), stateDeliveredMillis = clock()) }
             }
         }
         sessionScope.launch {

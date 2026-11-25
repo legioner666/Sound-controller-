@@ -50,6 +50,8 @@ data class ActiveDevice(
     val connection: ConnectionState,
     val headphone: HeadphoneState,
     val links: LinkStatus = LinkStatus(),
+    /** When the newest [headphone] state reached the single source every screen reads (TASK 007 diagnostics). */
+    val stateDeliveredMillis: Long? = null,
 )
 
 /** Short user-facing result of an action; [success] is true only for confirmed results. */

@@ -200,6 +200,11 @@ class AndroidDeviceLink(
     private suspend fun gattLocked(): GattClient? = channelLock.withLock { gattLock.withLock {
         if (closed) return@withLock null
         gatt?.let { if (it.connected.value) return@withLock it }
+        gatt?.let {
+            // The link dropped: release the dead client and subscriptions, then plan a fresh connection (recovery after GATT loss).
+            runCatching { it.close() }
+            gatt = null; gattTried = false; subscribed.clear()
+        }
         if (gattTried && gatt == null) return@withLock null
         gattTried = true
         _gattState.value = ChannelState.OPENING
@@ -232,6 +237,10 @@ class AndroidDeviceLink(
         _gattState.value = ChannelState.FAILED
         null
     } }
+
+    override suspend fun reconnectGatt(): Boolean = gatt() != null
+
+    override val activeSubscriptions: Int get() = subscribed.size
 
     override suspend fun gattServices(): Set<UUID> = gatt()?.services?.map { it.uuid }?.toSet() ?: emptySet()
 

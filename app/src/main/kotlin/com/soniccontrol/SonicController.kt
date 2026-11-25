@@ -331,6 +331,19 @@ class SonicController(
                     "streamEndpointLearned" to (androidLink()?.endpointAddresses?.isNotEmpty() == true),
                 )
             },
+            "live" to a?.let { d ->
+                val l = d.headphone.live; val now = clock()
+                fun age(t: Long?) = t?.let { x -> (now - x) / 1000 }
+                mapOf(
+                    "lastRxAgeSeconds" to age(l.lastRxMillis), "stateUpdatedAgeSeconds" to age(l.stateUpdatedMillis),
+                    "stateDeliveredAgeSeconds" to age(d.stateDeliveredMillis), "subscriptions" to l.subscriptions,
+                    "stopReason" to l.stopReason, "reconnect" to l.reconnect, "reconnectsDone" to l.reconnects,
+                )
+            },
+            "battery" to a?.headphone?.battery?.let { b ->
+                fun comp(c: com.soniccontrol.core.devices.BatteryLevel?) = c?.let { x -> mapOf("percent" to x.percent, "charging" to x.charging, "lastKnown" to x.lastKnown, "ageSeconds" to x.updatedMillis?.let { t -> (clock() - t) / 1000 }) }
+                mapOf("source" to b.source.name, "left" to comp(b.left), "right" to comp(b.right), "case" to comp(b.case), "single" to comp(b.single))
+            },
             "bondState" to a?.identity?.address?.let { addr -> runCatching { adapter?.getRemoteDevice(addr)?.bondState }.getOrNull() }?.let { b -> if (b == BluetoothDevice.BOND_BONDED) "BONDED" else "NOT_BONDED" },
         )
         val device = (a?.let {

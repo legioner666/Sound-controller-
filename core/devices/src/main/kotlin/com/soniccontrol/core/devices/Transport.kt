@@ -90,6 +90,12 @@ interface DeviceLink {
     /** Opens an L2CAP channel on [psm] (Fast Pair Message Stream over L2CAP). Null when unavailable. */
     suspend fun openL2cap(psm: Int, writable: Boolean): BluetoothTransport? = null
 
+    /** Re-establishes GATT after it was lost (endpoint, services, subscriptions are re-created by the callers). True when GATT is confirmed again. */
+    suspend fun reconnectGatt(): Boolean = gattServices().isNotEmpty()
+
+    /** Number of GATT notification subscriptions currently enabled (diagnostics). */
+    val activeSubscriptions: Int get() = 0
+
     /** Connection attempts so far (for diagnostics and honest error messages). */
     val attempts: List<ConnectionAttempt> get() = emptyList()
 

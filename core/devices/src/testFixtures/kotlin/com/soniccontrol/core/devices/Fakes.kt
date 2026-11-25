@@ -52,8 +52,20 @@ class FakeLink(
     override val gattState: StateFlow<ChannelState> get() = gattStateFlow
     override fun sdpUuids() = sdp
     override suspend fun gattServices() = services
-    override suspend fun readCharacteristic(service: UUID, characteristic: UUID): ByteArray? = characteristics[characteristic]
-    override suspend fun notifications(service: UUID, characteristic: UUID): Flow<ByteArray>? = null
+    override suspend fun readCharacteristic(service: UUID, characteristic: UUID): ByteArray? { reads++; return characteristics[characteristic] }
+    val notifyFlows = mutableMapOf<UUID, Flow<ByteArray>>()
+    override suspend fun notifications(service: UUID, characteristic: UUID): Flow<ByteArray>? = notifyFlows[characteristic]
+    /** Scripted results of successive reconnect attempts (default: always fails). On success GATT becomes CONFIRMED again. */
+    val reconnectResults = ArrayDeque<Boolean>()
+    var reconnectCalls = 0
+    var reads = 0
+    override suspend fun reconnectGatt(): Boolean {
+        reconnectCalls++
+        val ok = reconnectResults.removeFirstOrNull() ?: false
+        gattStateFlow.value = if (ok) ChannelState.CONFIRMED else ChannelState.FAILED
+        return ok
+    }
+    override val activeSubscriptions: Int get() = notifyFlows.size
     override suspend fun openGattChannel(service: UUID, notify: UUID?, write: UUID?) = gattChannel
     override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? { opened += uuid; openedWritable = writable; return rfcomm[uuid] }
     override suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean { suggested += address to modelIdHex; return false }

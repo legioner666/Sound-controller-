@@ -37,6 +37,7 @@
     <string name="battery_headset">Słuchawki</string>
     <string name="battery_charging">ładowanie</string>
     <string name="battery_no_reading">brak odczytu</string>
+    <string name="battery_stale">brak świeżych danych 10+ min — ostatnie znane wartości</string>
     <string name="battery_inactive">nieaktywna</string>
     <string name="battery_last_known">ostatnia znana</string>
     <string name="battery_none_yet">Brak odczytu baterii z tych słuchawek. Wartości pojawiają się dopiero, gdy słuchawki je przekażą.</string>

@@ -81,6 +81,8 @@ internal class JblSession(
     private fun commandStatus(): SupportStatus =
         if (model != null && model.stack == stack) JblCatalog.statusFor(model) else SupportStatus.EXPERIMENTAL
 
+    private companion object { const val MODE_POLL_MILLIS = 60_000L }
+
     private val controlMutex = kotlinx.coroutines.sync.Mutex()
     private var controlStarted = false
 
@@ -90,6 +92,32 @@ internal class JblSession(
         // GATT can come up later (for example on the LE address a Fast Pair stream reports after a reconnect):
         // run the selection again then, once, without duplicating sessions or subscriptions.
         launch { link.gattState.collect { if (it == ChannelState.CONFIRMED) selectControlChannel() } }
+        if (env.periodicRefresh) launch { pollListeningMode() }
+    }
+
+    /** GATT dropped: the old vendor channel is dead. Release it so the next CONFIRMED GATT opens a fresh one (no duplicates). */
+    override suspend fun onGattLost() {
+        controlMutex.withLock {
+            if (!controlStarted) return@withLock
+            controlStarted = false
+            harman?.let { runCatching { it.close() } }
+            harman = null; harmanExec = null
+            update { it.copy(control = ChannelState.CLOSED) }
+        }
+    }
+
+    /**
+     * The headset pushes mode changes by itself; as a safety net for missed notifications the listening mode is re-read
+     * with the confirmed GET at a long interval, only while the control channel is confirmed. Battery is not polled here
+     * (its GET has no confirmed reply on this model).
+     */
+    private suspend fun pollListeningMode() {
+        while (true) {
+            kotlinx.coroutines.delay(MODE_POLL_MILLIS)
+            val exec = harmanExec ?: continue
+            if (stack != JblStack.HARMAN_AA || state.value.control != ChannelState.CONFIRMED || state.value.busy) continue
+            exec.execute(JblCommands.p3ModeGet(commandStatus()))
+        }
     }
 
     private suspend fun selectControlChannel() = controlMutex.withLock {
@@ -253,6 +281,7 @@ internal class JblSession(
     }
 
     override suspend fun refresh(): CommandOutcome {
+        rereadBasOnce()
         val s = commandStatus()
         return when (stack) {
             JblStack.HARMAN_AA -> {

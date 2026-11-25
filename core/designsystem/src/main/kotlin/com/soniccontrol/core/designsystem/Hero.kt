@@ -46,6 +46,10 @@ fun HeadphoneHero(name: String, status: String, battery: BatteryStatus?, details
                 Text(stringResource(R.string.hero_no_data), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 SourceNote(battery.source, battery.timestampMillis)
+                // Fresh data is pushed; if nothing arrived for 10 minutes the figures are shown as last known, never as current.
+                val nowState = androidx.compose.runtime.produceState(System.currentTimeMillis()) { while (true) { kotlinx.coroutines.delay(30_000); value = System.currentTimeMillis() } }
+                val now = nowState.value
+                if (now - battery.timestampMillis > 10 * 60_000L) Text(stringResource(R.string.battery_stale), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }

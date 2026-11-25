@@ -1,5 +1,15 @@
 # Журнал змін
 
+## 0.7 — TASK 007 (live device state)
+- **Root cause (by code analysis; not yet confirmed on the phone)**: the UI path was already a single live flow (`session.state` → `SessionManager.active` → `collectAsStateWithLifecycle`). The data feeding it stopped: the Fast Pair stream closes ~5 s after opening and was never re-opened, L2CAP never opened (fixed in 0.6), and after a GATT loss the link kept a dead client and a "tried" flag, so nothing ever reconnected and the JBL vendor channel stayed bound to the dead GATT.
+- **GATT recovery** (all drivers, in `BaseDriverSession`): loss is detected, then 5 bounded attempts with back-off (3/10/30/60/120 s); sources are restarted without piling up subscriptions; JBL releases the dead channel and opens a fresh one once. Audio is never touched.
+- **Safety-net polling, long intervals only**: Fast Pair stream re-opened every 5 min (never stacked on an open one); JBL listening mode re-read with the confirmed GET every 60 s while the channel is confirmed. Unsolicited reports (gesture changes, BAS notifications) update the state immediately.
+- **Return to the app**: confirmed read on resume; battery shown as "no fresh data for 10+ min — last known values" when nothing arrived.
+- **Diagnostics**: `live` section (last RX age, state-updated age, state-delivered age, subscriptions, stop reason, reconnect status) and a `battery` section with per-component percent/charging/lastKnown/age.
+- Tests: unsolicited notification → flow; gesture → NoiseStatus; GATT loss → recovery/bounded/give-up/no duplicate recovery; JBL channel re-opened once; poll interval; no stacked streams.
+- Not covered: RFCOMM-only drivers (Sony, Bose, …) have no RFCOMM auto-reopen yet; the 30-minute on-device soak test has not been run.
+
+
 ## 0.6 — TASK 006 (battery & L2CAP hotfix)
 - **L2CAP PSM**: the FE2C1239 characteristic is parsed per the Fast Pair BLE spec as exactly 3 bytes `state | PSM uint16` (00 unknown, 01 ready, 02 unavailable; ready PSM 0x0080–0x00FF). Real value `01 00 A1` = ready, PSM 161. The old 1/2-byte parser rejected it, so L2CAP never opened. Secure L2CAP only, on the actual GATT endpoint.
 - **L2CAP lifecycle**: after the RFCOMM stream closes, wait (bounded) for GATT, re-read an "unknown" PSM up to 3 times, at most 3 attempts per session with back-off; no endless loop; JBL GATT control untouched.

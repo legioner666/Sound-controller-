@@ -12,6 +12,7 @@ import com.soniccontrol.core.protocol.Hex
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -119,5 +120,47 @@ class JblRealCaptureTest {
         link.gattStateFlow.value = ChannelState.CLOSED; link.gattStateFlow.value = ChannelState.CONFIRMED
         testScheduler.advanceTimeBy(60_000); testScheduler.runCurrent()
         assertEquals(1, ch.written.count { Hex.encode(it) == "aa 91 01 11" })   // a repeated CONFIRMED does not subscribe twice
+    }
+
+    private fun TestScope.jbl(link: FakeLink): com.soniccontrol.core.devices.DriverSession {
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(true), MutableStateFlow(false), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true)
+        return JblDriver().createSession(link, DeviceIdentity("AA:BB:CC:00:11:22", "JBL Tune Beam 2"), env)
+    }
+
+    @Test fun gestureChangeIsShownWithoutAnyCommand() = runTest(UnconfinedTestDispatcher()) {
+        val ch = deviceChannel()
+        val s = jbl(FakeLink(services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = ch)); s.start()
+        assertEquals(NoiseMode.OFF, s.state.value.noise?.mode)
+        ch.push(h("aa 91 09 12 01 01 02 00 03 00 04 07"))            // user double-taps the earbud: unsolicited report
+        assertEquals(NoiseMode.ANC, s.state.value.noise?.mode)
+        ch.push(h("aa 91 09 12 01 00 02 01 03 00 04 07"))
+        assertEquals(NoiseMode.AMBIENT, s.state.value.noise?.mode)
+    }
+
+    @Test fun gattLossReopensTheVendorChannelOnceAndReadsModeAgain() = runTest(UnconfinedTestDispatcher()) {
+        val first = deviceChannel()
+        val link = FakeLink(services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = first)
+        val s = jbl(link); s.start()
+        assertEquals(ChannelState.CONFIRMED, s.state.value.control)
+        val second = deviceChannel()
+        link.gattChannel = second; link.reconnectResults += true
+        link.gattStateFlow.value = ChannelState.CLOSED
+        testScheduler.advanceTimeBy(3_100); testScheduler.runCurrent()
+        assertTrue(first.closed)                                      // the dead channel was released
+        assertEquals(1, second.written.count { Hex.encode(it) == "aa 91 01 11" })
+        assertEquals(ChannelState.CONFIRMED, s.state.value.control)
+        assertEquals(1, s.state.value.live.reconnects)
+    }
+
+    @Test fun modeIsPolledWithTheConfirmedGetOnlyAtALongInterval() = runTest(UnconfinedTestDispatcher()) {
+        val ch = deviceChannel()
+        val s = jbl(FakeLink(services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = ch)); s.start()
+        val gets = { ch.written.count { Hex.encode(it) == "aa 91 01 11" } }
+        val before = gets()
+        testScheduler.advanceTimeBy(30_000); testScheduler.runCurrent()
+        assertEquals(before, gets())
+        testScheduler.advanceTimeBy(31_000); testScheduler.runCurrent()
+        assertEquals(before + 1, gets())
+        assertTrue(ch.written.none { Hex.encode(it).startsWith("aa 91 07 10") })   // polling never sends SET commands
     }
 }

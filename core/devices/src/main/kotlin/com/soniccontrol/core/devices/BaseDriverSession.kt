@@ -29,7 +29,10 @@ abstract class BaseDriverSession(
     private val jobs = mutableListOf<Job>()
     private val transports = mutableListOf<BluetoothTransport>()
 
-    protected fun update(transform: (HeadphoneState) -> HeadphoneState) = _state.update(transform)
+    protected fun update(transform: (HeadphoneState) -> HeadphoneState) =
+        _state.update { st -> transform(st).let { it.copy(live = it.live.copy(stateUpdatedMillis = env.clock())) } }
+
+    protected fun updateLive(transform: (LiveInfo) -> LiveInfo) = update { it.copy(live = transform(it.live)) }
 
     protected fun notice(n: Notice) = update { it.copy(notices = it.notices + n) }
     protected fun clearNotice(n: Notice) = update { it.copy(notices = it.notices - n) }
@@ -62,7 +65,12 @@ abstract class BaseDriverSession(
         }
     }
 
-    protected fun log(category: EventCategory, message: String, bytes: ByteArray? = null) =
+    protected fun log(category: EventCategory, message: String, bytes: ByteArray? = null) {
+        if (category == EventCategory.RX) _state.update { it.copy(live = it.live.copy(lastRxMillis = env.clock())) }
+        logRaw(category, message, bytes)
+    }
+
+    private fun logRaw(category: EventCategory, message: String, bytes: ByteArray?) =
         env.sink.log(DiagnosticEvent(env.clock(), category, "[$driverId] $message", bytes?.toHex(), link.address))
 
     protected fun launch(block: suspend () -> Unit): Job = env.scope.launch { block() }.also { synchronized(jobs) { jobs += it } }
@@ -98,14 +106,16 @@ abstract class BaseDriverSession(
     protected fun startUniversalSources() {
         launch { listenFastPairAdverts() }
         link.expectFastPairStream(env.fastPairListening.value && StandardUuids.FAST_PAIR_MESSAGE_STREAM in link.sdpUuids())
+        superviseGatt()
         if (!env.fastPairListening.value) {
-            launch { readGattSources() }
+            launchGattSources()
             return
         }
+        if (env.periodicRefresh) refreshFastPairPeriodically()
         launch {
             val stream = openFastPairStream()
             if (stream != null) launch { consumeStream(stream) }
-            launch { readGattSources() }
+            launchGattSources()
             if (stream == null) {
                 openFastPairL2cap()?.let { launch { consumeStream(it) } }
             } else {
@@ -124,6 +134,81 @@ abstract class BaseDriverSession(
         readBleBatteryService()
     }
 
+    private var gattSourcesJob: Job? = null
+
+    /** (Re)starts the GATT-based sources; a previous run (from a lost connection) is cancelled first, so subscriptions never pile up. */
+    private fun launchGattSources() {
+        gattSourcesJob?.cancel()
+        gattSourcesJob = launch { readGattSources() }
+    }
+
+    // ---- recovery (TASK 007) --------------------------------------------------------------------------------------
+
+    private var recoveryJob: Job? = null
+    private val recoveryDelaysMillis = listOf(3_000L, 10_000L, 30_000L, 60_000L, 120_000L)
+
+    /** The GATT link was lost: drivers release whatever depended on it (control channel, subscriptions). */
+    protected open suspend fun onGattLost() {}
+
+    /** GATT is back after a loss; sources and (via [onGattLost] reset) the vendor channel are re-established. */
+    protected open suspend fun onGattRestored() {}
+
+    /** Watches GATT and recovers it after loss with bounded, backed-off attempts; audio is never touched. */
+    protected fun superviseGatt() {
+        launch {
+            var wasUp = link.gattState.value == ChannelState.CONFIRMED
+            link.gattState.collect { st ->
+                when {
+                    st == ChannelState.CONFIRMED -> wasUp = true
+                    st == ChannelState.CLOSED && wasUp -> {
+                        wasUp = false
+                        log(EventCategory.GATT, "GATT lost; recovering")
+                        updateLive { it.copy(stopReason = "GATT link lost") }
+                        startRecovery()
+                    }
+                }
+            }
+        }
+    }
+
+    protected fun startRecovery() {
+        if (recoveryJob?.isActive == true) return
+        recoveryJob = launch {
+            onGattLost()
+            for ((i, wait) in recoveryDelaysMillis.withIndex()) {
+                updateLive { it.copy(reconnect = "attempt ${i + 1}/${recoveryDelaysMillis.size}") }
+                kotlinx.coroutines.delay(wait)
+                if (link.reconnectGatt()) {
+                    updateLive { it.copy(reconnect = null, stopReason = null, reconnects = it.reconnects + 1, subscriptions = link.activeSubscriptions) }
+                    log(EventCategory.GATT, "GATT recovered after attempt ${i + 1}")
+                    launchGattSources()
+                    onGattRestored()
+                    return@launch
+                }
+            }
+            updateLive { it.copy(reconnect = "gave up after ${recoveryDelaysMillis.size} attempts", stopReason = "GATT could not be restored") }
+            log(EventCategory.GATT, "GATT recovery gave up")
+        }
+    }
+
+    /**
+     * Fast Pair streams close on their own (the Tune Beam 2 closes ~5 s after opening), so component battery is refreshed by
+     * re-opening the read-only stream at a long interval — never faster, never while a previous stream is still open.
+     */
+    private fun refreshFastPairPeriodically() {
+        launch {
+            while (true) {
+                kotlinx.coroutines.delay(FAST_PAIR_REFRESH_MILLIS)
+                if (!env.fastPairListening.value) continue
+                if (currentStream?.state?.value == TransportState.Open) continue   // a stream is already open: never stack another
+                val stream = openFastPairStream() ?: continue
+                log(EventCategory.RFCOMM, "periodic Fast Pair refresh")
+                launch { consumeStream(stream) }
+                stream.state.first { it != TransportState.Open }
+            }
+        }
+    }
+
     /** Standard Device Information Service: firmware revision (read-only). Used for identification only. */
     private suspend fun readDeviceInformation() {
         if (StandardUuids.DEVICE_INFORMATION !in link.gattServices()) return
@@ -137,7 +222,9 @@ abstract class BaseDriverSession(
         val services = link.gattServices()
         if (StandardUuids.BATTERY_SERVICE !in services) return
         link.readCharacteristic(StandardUuids.BATTERY_SERVICE, StandardUuids.BATTERY_LEVEL)?.let { onBas(it) }
-        link.notifications(StandardUuids.BATTERY_SERVICE, StandardUuids.BATTERY_LEVEL)?.collect { onBas(it) }
+        val flow = link.notifications(StandardUuids.BATTERY_SERVICE, StandardUuids.BATTERY_LEVEL) ?: return
+        updateLive { it.copy(subscriptions = link.activeSubscriptions) }
+        flow.collect { onBas(it) }
     }
 
     private fun onBas(value: ByteArray) {
@@ -166,14 +253,17 @@ abstract class BaseDriverSession(
         val writable = env.experimentalEnabled.value
         val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = writable) ?: return null
         log(EventCategory.RFCOMM, "Fast Pair Message Stream open (RFCOMM, ${if (writable) "experimental request allowed" else "listen-only"})")
-        return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+        return track(FramedTransport(raw, env.scope, env.clock, FastPair::split)).also { currentStream = it }
     }
+
+    @Volatile private var currentStream: BluetoothTransport? = null
 
     private var l2capAttempts = 0
     private companion object {
         const val MAX_L2CAP_ATTEMPTS = 3
         const val PSM_READS = 3
         const val GATT_WAIT_MILLIS = 30_000L
+        const val FAST_PAIR_REFRESH_MILLIS = 5 * 60_000L
     }
 
     /**
@@ -201,7 +291,7 @@ abstract class BaseDriverSession(
             val raw = link.openL2cap(psm, writable = false)
             if (raw != null) {
                 log(EventCategory.RFCOMM, "Fast Pair Message Stream open (L2CAP PSM $psm, secure, listen-only)")
-                return track(FramedTransport(raw, env.scope, env.clock, FastPair::split))
+                return track(FramedTransport(raw, env.scope, env.clock, FastPair::split)).also { currentStream = it }
             }
             log(EventCategory.RFCOMM, "L2CAP PSM $psm did not open (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)")
             kotlinx.coroutines.delay(2_000L * l2capAttempts)
@@ -239,7 +329,7 @@ abstract class BaseDriverSession(
                 is FastPairEvent.Active -> { answered.complete(true); update { it.copy(active = e.components) } }
                 is FastPairEvent.BleAddress -> launch {
                     // Priority GATT candidate for this session only; if GATT opens now, read the standard sources again.
-                    if (link.suggestEndpoint(e.address, streamModelId)) readGattSources()
+                    if (link.suggestEndpoint(e.address, streamModelId)) launchGattSources()
                 }
                 is FastPairEvent.Unknown -> Unit
             }
@@ -252,7 +342,13 @@ abstract class BaseDriverSession(
         toClose.forEach { runCatching { it.close() } }
     }
 
-    override suspend fun refresh(): CommandOutcome = CommandOutcome.Unsupported("this device has no vendor refresh")
+    /** Re-reads the passive battery source once (a cheap, confirmed read) — used when the app returns to the foreground. */
+    protected suspend fun rereadBasOnce() {
+        if (StandardUuids.BATTERY_SERVICE !in link.gattServices()) return
+        link.readCharacteristic(StandardUuids.BATTERY_SERVICE, StandardUuids.BATTERY_LEVEL)?.let { onBas(it) }
+    }
+
+    override suspend fun refresh(): CommandOutcome { rereadBasOnce(); return CommandOutcome.Unsupported("this device has no vendor refresh") }
     override suspend fun setNoiseMode(mode: NoiseMode): CommandOutcome = CommandOutcome.Unsupported("noise control is not available")
     override suspend fun probe(): CommandOutcome = CommandOutcome.Unsupported("no protocol probe for this device")
 }

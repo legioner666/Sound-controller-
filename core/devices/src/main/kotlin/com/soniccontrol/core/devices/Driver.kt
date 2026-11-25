@@ -23,6 +23,20 @@ class DriverEnvironment(
     val fastPairListening: StateFlow<Boolean>,
     val sink: DiagnosticSink,
     val clock: () -> Long,
+    /** Long-interval safety-net polling (Fast Pair re-open, JBL mode GET). On in the app; tests with idle-waiting turn it on explicitly. */
+    val periodicRefresh: Boolean = false,
+)
+
+/** Liveness of the state itself (TASK 007): when data last arrived, why updates may have stopped, what recovery is doing. */
+data class LiveInfo(
+    val lastRxMillis: Long? = null,
+    val stateUpdatedMillis: Long? = null,
+    val subscriptions: Int = 0,
+    /** Null when everything is running; otherwise a short English reason (shown in Lab/diagnostics). */
+    val stopReason: String? = null,
+    /** Null = idle; e.g. "attempt 2/5" or "gave up". */
+    val reconnect: String? = null,
+    val reconnects: Int = 0,
 )
 
 data class HeadphoneState(
@@ -48,6 +62,7 @@ data class HeadphoneState(
     /** Vendor control channel. CONFIRMED only after a fully validated frame from the headset. */
     val control: ChannelState = ChannelState.UNAVAILABLE,
     val busy: Boolean = false,
+    val live: LiveInfo = LiveInfo(),
 )
 
 /** A live, driver-owned control session for one connected device. */
