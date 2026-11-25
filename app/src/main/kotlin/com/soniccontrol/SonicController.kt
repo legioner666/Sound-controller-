@@ -71,6 +71,7 @@ class SonicController(
     private val monitor = BluetoothStateMonitor(context)
     private val adapter = monitor.adapter
     private val scanner = adapter?.let { DeviceScanner(context, it, log, clock) }
+    private var audioMonitor: com.soniccontrol.core.bluetooth.AudioProfileMonitor? = null
 
     override val availability: StateFlow<BluetoothAvailability> = monitor.state
     override val catalog: DeviceCatalog = registry.catalog
@@ -120,6 +121,7 @@ class SonicController(
         }
 
         override fun audioState(address: String): AudioLinkState {
+            audioMonitor?.stateOf(address)?.let { if (it != AudioLinkState.UNKNOWN) return it }
             val d = devices.value.firstOrNull { it.address == address } ?: return AudioLinkState.UNKNOWN
             return if (d.audioConnected) AudioLinkState.CONNECTED else AudioLinkState.UNKNOWN
         }
@@ -174,6 +176,9 @@ class SonicController(
         scope.launch {
             availability.collect { a ->
                 if (a == BluetoothAvailability.READY) {
+                    if (audioMonitor == null && adapter != null && BluetoothPermissions.canConnect(context)) {
+                        audioMonitor = com.soniccontrol.core.bluetooth.AudioProfileMonitor(context, adapter, ::onAudioProfile).also { it.start() }
+                    }
                     scanner?.loadBonded(); scanner?.loadAudioConnected()
                     delay(800)
                     autoConnect()
@@ -206,10 +211,19 @@ class SonicController(
         if (devices.value.any { it.address == last && it.audioConnected }) sessions.connect(last)
     }
 
-    private fun onAcl(address: String, connected: Boolean) {
-        log.log(EventCategory.CONNECTION, if (connected) "ACL connected" else "ACL disconnected", address = address)
+    /** Audio profile (A2DP/HFP) state changed: this, not ACL or GATT, drives the audio link and the session lifecycle. */
+    private fun onAudioProfile(address: String, state: AudioLinkState) {
+        log.log(EventCategory.CONNECTION, "audio profile: $state", address = address)
         scanner?.loadAudioConnected()
-        sessions.onAudioLink(address, connected)
+        if (state == AudioLinkState.UNKNOWN) return
+        sessions.onAudioLink(address, state == AudioLinkState.CONNECTED)
+        if (state == AudioLinkState.CONNECTED && active.value == null && db.settings.value.autoReconnect && db.settings.value.lastDevice == address) {
+            scope.launch { delay(1_500); if (active.value == null) sessions.connect(address) }
+        }
+    }
+
+    private fun onAcl(address: String, connected: Boolean) {
+        log.log(EventCategory.CONNECTION, if (connected) "ACL connected (not an audio signal)" else "ACL disconnected (not an audio signal)", address = address)
         if (connected && active.value == null && db.settings.value.autoReconnect && db.settings.value.lastDevice == address) {
             scope.launch { delay(1_500); if (active.value == null) sessions.connect(address) }
         }

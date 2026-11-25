@@ -93,6 +93,13 @@ object JblProtocol {
             return Frame(bytes.u8(1), bytes.copyOfRange(start, bytes.size))
         }
 
+        /** Native device notification `AA 06 <len16 LE> <subtype16 LE> <body>`. Only the envelope is decoded; the body is never interpreted. */
+        const val CMD_NATIVE = 0x06
+        data class Native(val subtype: Int, val bodyLength: Int)
+
+        fun parseNative(f: Frame): Native? =
+            if (f.command == CMD_NATIVE && f.payload.size >= 2) Native(f.payload.u16le(0), f.payload.size - 2) else null
+
         fun versionGet() = frame(CMD_VERSION, bytesOf(0x30))
         fun batteryGet() = frame(CMD_BATTERY, bytesOf(0x00))
         fun listeningModeGet() = frame(CMD_LISTENING_MODE, bytesOf(OP_GET))

@@ -154,3 +154,20 @@ class JblIntegrationTest {
         assertTrue(ch.written.isEmpty())
     }
 }
+
+class JblNativeNotificationTest {
+    private fun hex(s: String) = s.replace(" ", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    @org.junit.Test fun nativeEnvelopeIsParsedAndBodyIsNeverInterpreted() {
+        val f = JblProtocol.P3.parse(hex("aa 06 05 00 02 00 1f 01 00"))!!
+        val n = JblProtocol.P3.parseNative(f)!!
+        org.junit.Assert.assertEquals(2, n.subtype)
+        org.junit.Assert.assertEquals(3, n.bodyLength)
+        org.junit.Assert.assertNull(JblProtocol.P3.parseBattery(f, 0L))
+    }
+
+    @org.junit.Test fun truncatedOrWrongLengthNativeFramesAreRejected() {
+        org.junit.Assert.assertNull(JblProtocol.P3.parse(hex("aa 06 05 00 02 00 1f")))
+        org.junit.Assert.assertNull(JblProtocol.P3.parseNative(JblProtocol.P3.parse(hex("aa 06 01 00 02"))!!))
+    }
+}

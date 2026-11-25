@@ -42,6 +42,9 @@ data class CharacteristicInfo(
 
 data class ServiceInfo(val uuid: UUID, val name: String?, val characteristics: List<CharacteristicInfo>)
 
+/** Whether the app can currently read/control the headset; independent of whether audio is connected. */
+enum class ControlStatus { CONNECTED, RECONNECTING, UNAVAILABLE }
+
 data class ActiveDevice(
     val identity: DeviceIdentity,
     val driverId: String,
@@ -52,7 +55,14 @@ data class ActiveDevice(
     val links: LinkStatus = LinkStatus(),
     /** When the newest [headphone] state reached the single source every screen reads (TASK 007 diagnostics). */
     val stateDeliveredMillis: Long? = null,
-)
+) {
+    /** Never derived from [connection] alone: a session can be Active while every channel is down. */
+    val controlStatus: ControlStatus get() = when {
+        links.control == ChannelState.CONFIRMED || links.gatt == ChannelState.CONFIRMED || links.rfcomm == ChannelState.CONFIRMED -> ControlStatus.CONNECTED
+        headphone.live.reconnect?.startsWith("gave up") == false || connection is ConnectionState.Reconnecting || connection == ConnectionState.Starting -> ControlStatus.RECONNECTING
+        else -> ControlStatus.UNAVAILABLE
+    }
+}
 
 /** Short user-facing result of an action; [success] is true only for confirmed results. */
 data class ActionResult(val action: String, val outcome: CommandOutcome)

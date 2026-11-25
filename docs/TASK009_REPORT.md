@@ -1,0 +1,21 @@
+# TASK 009 — Bluetooth Connection Engine: causes and fixes (v0.8.x stabilization build)
+
+Source: owner's physical test of v0.8.11 (diagnostics JSON, session timeline in the owner's message). Nothing below is physically verified yet; green CI is not acceptance.
+
+| # | Failure in v0.8.11 | Cause found in code | Fix |
+|---|---|---|---|
+| 1 | "attempt 5/5" but one connection cycle in the log | `AndroidDeviceLink.gattLocked()` returned `null` immediately when `gattTried && gatt == null`; after the first failed cycle attempts 2–5 never touched Bluetooth. The UI label was also set *before* the back-off wait, so "5/5" was shown at ~100 s although attempt 5 ran at ~223 s. | `reconnectGatt()` is now a fresh cycle every time: close old GATT and subscriptions, drop the stale LE address and all cached BLE observations, new scan, every candidate verified again. Label shows "waiting N s before attempt i/5" until the attempt really starts. Back-off 2/5/15/30/60 s. |
+| 2 | Reconnect used old BLE addresses | Cached observations (≤90 s) and the previous Fast Pair-reported LE address were reused without a scan. | Observations and stale endpoint invalidated before each recovery attempt; identity re-verified (Fast Pair service + Model ID) for stream-reported endpoints. |
+| 3 | L2CAP "Client security clearance failed" ×3 | Retry loop counted attempts, not the reason. | First security refusal sets `l2capDenied` for the session; no further L2CAP attempts, no bypass. |
+| 4 | Audio state UNKNOWN | Audio state came from a one-shot bonded/A2DP snapshot and ACL events (ACL includes LE links and says nothing about audio). | New `AudioProfileMonitor`: held public A2DP and Headset profile proxies plus their connection-state broadcasts. CONNECTED / DISCONNECTED / UNKNOWN (UNKNOWN only without proxies). ACL events no longer stop or start sessions. |
+| 5 | Stale data shown as current (`lastKnown:false`) | Nothing marked values stale when their source was lost. | On GATT loss and after repeated failed refreshes all battery components become `lastKnown=true`; new values clear it. Notification marks data stale whenever control is not connected. |
+| 6 | Session "Active" with all channels closed | `ConnectionState.Active` was the only status. | `ActiveDevice.controlStatus` (CONNECTED / RECONNECTING / UNAVAILABLE) derived from real channel state; the background notification uses audio state + control status. |
+| 7 | Fast Pair refresh every 5 min | Fixed long interval. | Event-driven refresh (`requestRefresh`) plus adaptive schedule 30 s → ×2 → 5 min, reset on change, min gap 5 s, one socket at a time. |
+| 8 | JBL native `AA 06` notifications | Not handled. | Envelope decoded (`subtype`, body length); body is **not** interpreted (no verified Tune Beam 2 sample in hand). A native notification triggers a state refresh through the verified Fast Pair source. |
+| 9 | Diagnostics export | Only headers were considered. | `HexPolicy`: allowlist by frame layout **and** payload length/value ranges; BLE-address payload always masked; unknown/odd frames exported as shape only. |
+
+## Still open (honest list)
+- Physical scenarios from TASK 009 (case in/out per earbud, BT off/on, lock screen, music, 60 min, 20 reconnects) are not tested.
+- `AA 06` body meaning and any battery inside it: unknown until a Tune Beam 2 capture exists. Only the Wave Buds 2 captures of other projects show a similar envelope; not used.
+- Fast Pair spec text could not be fetched; PSM byte order is from the owner's/GPT's table.
+- TWS main-earbud switch handling relies on fresh scan + identity check; behaviour on the real device is unverified.

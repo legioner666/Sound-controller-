@@ -96,4 +96,30 @@ class LiveStateTest {
         advanceTimeBy(20 * 60_000); runCurrent()
         assertEquals(1, link.opened.count { it == rf })   // the first stream is still open: no second one is stacked on it
     }
+
+    @Test fun batteryIsMarkedLastKnownWhenItsSourceIsLost() = runTest {
+        val link = basLink(); val s = session(link); s.start(); runCurrent()
+        assertTrue(!s.state.value.battery!!.single!!.lastKnown)
+        link.gattStateFlow.value = ChannelState.CLOSED; runCurrent()
+        assertTrue("old value stays visible but is labelled last-known", s.state.value.battery!!.single!!.lastKnown)
+    }
+
+    @Test fun controlStatusIsNeverDerivedFromSessionActiveAlone() {
+        val id = DeviceIdentity("00:11:22:33:44:55", "Fake")
+        val base = ActiveDevice(id, "t", "T", DriverMatch(1, null, "x"), ConnectionState.Active, HeadphoneState("Fake"), LinkStatus(audio = AudioLinkState.UNKNOWN, gatt = ChannelState.FAILED, rfcomm = ChannelState.CLOSED, control = ChannelState.CLOSED))
+        assertEquals(ControlStatus.UNAVAILABLE, base.controlStatus)                       // v0.8.11: Active, but every channel closed
+        val reconnecting = base.copy(headphone = HeadphoneState("Fake", live = LiveInfo(reconnect = "attempt 2/5")))
+        assertEquals(ControlStatus.RECONNECTING, reconnecting.controlStatus)
+        val gaveUp = base.copy(headphone = HeadphoneState("Fake", live = LiveInfo(reconnect = "gave up after 5 attempts")))
+        assertEquals(ControlStatus.UNAVAILABLE, gaveUp.controlStatus)
+        assertEquals(ControlStatus.CONNECTED, base.copy(links = base.links.copy(gatt = ChannelState.CONFIRMED)).controlStatus)
+    }
+
+    @Test fun fastPairRefreshIsAdaptiveBoundedAndSingleSocket() = runTest {
+        val link = FakeLink(sdp = setOf(rf), rfcomm = mapOf(rf to FakeTransport()), services = setOf(bas), characteristics = mapOf(StandardUuids.BATTERY_LEVEL to hex("50")))
+        val s = session(link, fastPair = true); s.start(); runCurrent()
+        advanceTimeBy(60 * 60_000); runCurrent()
+        // unchanged data backs off 30 s -> 5 min: far fewer than one open per 30 s, and never endless
+        assertTrue("opens=${link.opened.size}", link.opened.size in 1..20)
+    }
 }

@@ -42,10 +42,11 @@ class BackgroundMonitoring(
         val b = a.headphone.battery
         val newest = listOfNotNull(b?.timestampMillis, a.headphone.live.lastRxMillis).maxOrNull()
         return MonitorSummary(
-            deviceName = a.headphone.displayName, connected = a.connection is com.soniccontrol.core.devices.ConnectionState.Active,
+            deviceName = a.headphone.displayName, connected = a.links.audio == com.soniccontrol.core.devices.AudioLinkState.CONNECTED ||
+                (a.links.audio == com.soniccontrol.core.devices.AudioLinkState.UNKNOWN && a.controlStatus == com.soniccontrol.core.devices.ControlStatus.CONNECTED),
             left = b?.left?.percent, right = b?.right?.percent, case = b?.case?.percent, single = b?.single?.percent,
             leftCharging = b?.left?.charging == true, rightCharging = b?.right?.charging == true, caseCharging = b?.case?.charging == true,
-            stale = newest != null && now - newest > STALE_MILLIS, reconnect = a.headphone.live.reconnect,
+            stale = a.controlStatus != com.soniccontrol.core.devices.ControlStatus.CONNECTED || (newest != null && now - newest > STALE_MILLIS), reconnect = a.headphone.live.reconnect,
         )
     }
 

@@ -175,6 +175,7 @@ abstract class BaseDriverSession(
         if (recoveryJob?.isActive == true) return
         recoveryJob = launch {
             onGattLost()
+            markBatteryStale()   // the live source is gone: old values stay visible but are labelled last-known
             for ((i, wait) in recoveryDelaysMillis.withIndex()) {
                 updateLive { it.copy(reconnect = "waiting ${wait / 1000} s before attempt ${i + 1}/${recoveryDelaysMillis.size}") }
                 kotlinx.coroutines.delay(wait)
@@ -193,20 +194,50 @@ abstract class BaseDriverSession(
         }
     }
 
+    private val refreshTriggers = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** Event-driven refresh: something happened that probably changed the earbuds (case, audio, vendor notification). Debounced and bounded. */
+    protected fun requestRefresh(reason: String) { refreshTriggers.trySend(reason) }
+
+    /** Marks every battery component as "last known": its source is gone or silent, so it must not look current. */
+    protected fun markBatteryStale() = update { s ->
+        val b = s.battery ?: return@update s
+        fun BatteryLevel?.stale() = this?.copy(lastKnown = true)
+        s.copy(battery = b.copy(left = b.left.stale(), right = b.right.stale(), case = b.case.stale(), single = b.single.stale()))
+    }
+
+    private fun refreshSignature(): String = state.value.let { s ->
+        val b = s.battery
+        listOf(b?.left, b?.right, b?.case, b?.single).joinToString("|") { "${it?.percent}/${it?.charging}" } + "|${s.active}"
+    }
+
     /**
-     * Fast Pair streams close on their own (the Tune Beam 2 closes ~5 s after opening), so component battery is refreshed by
-     * re-opening the read-only stream at a long interval — never faster, never while a previous stream is still open.
+     * Fast Pair streams close on their own (the Tune Beam 2 closes ~5 s after opening), so state is re-read by re-opening the
+     * read-only stream: immediately after an event ([requestRefresh]), and otherwise on an adaptive schedule that starts at
+     * [REFRESH_MIN_MILLIS], doubles while nothing changes and is capped at [REFRESH_MAX_MILLIS]; a change resets it.
+     * Never faster than [REFRESH_MIN_GAP_MILLIS], never while a stream is open, so at most one socket exists.
      */
     private fun refreshFastPairPeriodically() {
         launch {
+            var interval = REFRESH_MIN_MILLIS
+            var silent = 0
             while (true) {
-                kotlinx.coroutines.delay(FAST_PAIR_REFRESH_MILLIS)
+                val reason = kotlinx.coroutines.withTimeoutOrNull(interval) { refreshTriggers.receive() } ?: "scheduled"
                 if (!env.fastPairListening.value) continue
                 if (currentStream?.state?.value == TransportState.Open) continue   // a stream is already open: never stack another
-                val stream = openFastPairStream() ?: continue
-                log(EventCategory.RFCOMM, "periodic Fast Pair refresh")
+                val before = refreshSignature()
+                val stream = openFastPairStream()
+                if (stream == null) {
+                    if (++silent >= 2) markBatteryStale()
+                    interval = (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
+                    continue
+                }
+                silent = 0
+                log(EventCategory.RFCOMM, "Fast Pair refresh ($reason)")
                 launch { consumeStream(stream) }
                 stream.state.first { it != TransportState.Open }
+                interval = if (refreshSignature() != before) REFRESH_MIN_MILLIS else (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
+                kotlinx.coroutines.delay(REFRESH_MIN_GAP_MILLIS)
             }
         }
     }
@@ -265,7 +296,9 @@ abstract class BaseDriverSession(
         const val MAX_L2CAP_ATTEMPTS = 3
         const val PSM_READS = 3
         const val GATT_WAIT_MILLIS = 30_000L
-        const val FAST_PAIR_REFRESH_MILLIS = 5 * 60_000L
+        const val REFRESH_MIN_MILLIS = 30_000L
+        const val REFRESH_MAX_MILLIS = 5 * 60_000L
+        const val REFRESH_MIN_GAP_MILLIS = 5_000L
     }
 
     /**

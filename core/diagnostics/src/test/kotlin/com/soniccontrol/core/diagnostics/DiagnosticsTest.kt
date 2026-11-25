@@ -92,4 +92,14 @@ class HexPolicyTest {
         org.junit.Assert.assertEquals("<6 bytes>", ex("read 00002a23-0000-1000-8000-00805f9b34fb", "aa bb cc 00 11 22"))
         org.junit.Assert.assertEquals("01 00 a1", ex("read fe2c1239-8366-4814-8eb0-01de32100bea", "01 00 a1"))
     }
+
+    @org.junit.Test fun payloadStructureAndRangesAreCheckedNotJustHeaders() {
+        // right header, impossible payload -> shape only
+        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x3 length=3>", ex("x", "03 03 00 03 ff 90 22"))   // 0x90 low bits = 16 ok but 0xff/0x22 out of range
+        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x1 length=5>", ex("x", "03 01 00 05 01 02 03 04 05"))
+        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x9 length=4>", ex("x", "03 09 00 04 aa bb cc dd"))   // non-text "firmware"
+        org.junit.Assert.assertEquals("<aa cmd=0x9b length=2>", ex("x", "aa 9b 02 07 07"))
+        org.junit.Assert.assertEquals("<aa cmd=0x91 length=4>", ex("x", "aa 91 04 12 aa bb cc"))
+        org.junit.Assert.assertEquals("03 09 00 05 30 2e 32 2e 38", ex("x", "03 09 00 05 30 2e 32 2e 38"))
+    }
 }

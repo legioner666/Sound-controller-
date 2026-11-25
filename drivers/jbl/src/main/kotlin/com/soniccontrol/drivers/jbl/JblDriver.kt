@@ -192,6 +192,13 @@ internal class JblSession(
             if (stack == JblStack.UNIDENTIFIED) identified(JblStack.HARMAN_AA)
             if (stack != JblStack.HARMAN_AA) return
             val f = p3
+            JblProtocol.P3.parseNative(f)?.let { n ->
+                // A native notification means the earbuds changed something (case, wear, mode). Contents are not interpreted
+                // (no verified Tune Beam 2 sample); the state is re-read through the verified Fast Pair source instead.
+                log(EventCategory.DRIVER, "native notification subtype=0x${n.subtype.toString(16)} bodyLength=${n.bodyLength}: refreshing state")
+                requestRefresh("jbl native notification")
+                return
+            }
             JblProtocol.P3.parseBattery(f, env.clock())?.let { acceptBattery(it) }
             JblProtocol.P3.parseListeningMode(f)?.let { mode ->
                 update { it.copy(noise = NoiseStatus(mode, DataSource.VENDOR_PROTOCOL, env.clock())) }

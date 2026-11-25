@@ -1,5 +1,8 @@
 # Журнал змін
 
+## 0.8.x stabilization (TASK 009)
+- Reconnect rebuilt: fresh scan and endpoint verification on every attempt; audio state from A2DP/HFP profiles; L2CAP stops after a security refusal; stale data labelled; adaptive event-driven refresh; JBL AA 06 envelope; stricter diagnostics allowlist. See docs/TASK009_REPORT.md.
+
 ## 0.8 — TASK 008 (Sonic Music & background)
 - **Music player** (Media3 ExoPlayer + MediaSessionService): local library through MediaStore, import through the system file picker, MP3/FLAC/WAV/AAC/M4A/OGG within the phone's decoders, search (case/accent-insensitive), sorting, albums/artists/folders, playlists, favourites, queue, shuffle/repeat, saved queue restored paused, mini player on every screen, full-screen player with sleep timer, bass boost (if the phone supports it) and the headphone's listening modes.
 - **Background**: playback service (lock screen, media buttons, audio focus, auto-pause when headphones disconnect, no start after reboot) and a separate `connectedDevice` foreground service for headphone monitoring (battery, charging, ANC, reconnect state; stoppable from the notification; user setting).
