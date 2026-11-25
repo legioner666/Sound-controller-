@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="source_vendor_native">нативне сповіщення JBL (експериментально)</string>
     <string name="tab_music">Музика</string>
     <string name="settings_background">Фоновий моніторинг</string>
     <string name="settings_background_body">Показує сповіщення, щоб заряд, заряджання та режим шумозаглушення оновлювались, поки застосунок закритий. Зупинити можна зі сповіщення.</string>

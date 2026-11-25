@@ -27,6 +27,7 @@ class AudioProfileMonitor(
 ) {
     @Volatile private var a2dp: BluetoothProfile? = null
     @Volatile private var headset: BluetoothProfile? = null
+    @Volatile private var leAudio: BluetoothProfile? = null   // LE Audio (public BluetoothProfile.LE_AUDIO, Android 13+)
     private var started = false
 
     private val receiver = object : BroadcastReceiver() {
@@ -47,32 +48,34 @@ class AudioProfileMonitor(
     }
 
     private fun otherConnected(action: String?, d: BluetoothDevice): Boolean {
-        val other = if (action == BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED) headset else a2dp
-        return runCatching { other?.getConnectionState(d) == BluetoothProfile.STATE_CONNECTED }.getOrDefault(false)
+        return listOfNotNull(a2dp, headset, leAudio).filter { it !== (if (action == BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED) a2dp else if (action == LE_AUDIO_ACTION) leAudio else headset) }
+            .any { runCatching { it.getConnectionState(d) == BluetoothProfile.STATE_CONNECTED }.getOrDefault(false) }
     }
 
     @Synchronized fun start() {
         if (started) return
         started = true
-        for (profile in listOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET)) {
+        val profiles = buildList { add(BluetoothProfile.A2DP); add(BluetoothProfile.HEADSET); if (Build.VERSION.SDK_INT >= 33) add(LE_AUDIO) }
+        for (profile in profiles) {
             adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
                 override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
-                    if (p == BluetoothProfile.A2DP) a2dp = proxy else headset = proxy
+                    when (p) { BluetoothProfile.A2DP -> a2dp = proxy; LE_AUDIO -> leAudio = proxy; else -> headset = proxy }
                     runCatching { proxy.connectedDevices }.getOrNull()?.forEach { onChange(it.address, AudioLinkState.CONNECTED) }
                 }
-                override fun onServiceDisconnected(p: Int) { if (p == BluetoothProfile.A2DP) a2dp = null else headset = null }
+                override fun onServiceDisconnected(p: Int) { when (p) { BluetoothProfile.A2DP -> a2dp = null; LE_AUDIO -> leAudio = null; else -> headset = null } }
             }, profile)
         }
         val filter = IntentFilter().apply {
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
             addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
+            if (Build.VERSION.SDK_INT >= 33) addAction(LE_AUDIO_ACTION)
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     /** CONNECTED when A2DP or HFP is connected; DISCONNECTED when the proxies answer and neither is; UNKNOWN without proxies. */
     fun stateOf(address: String): AudioLinkState {
-        val proxies = listOfNotNull(a2dp, headset)
+        val proxies = listOfNotNull(a2dp, headset, leAudio)
         if (proxies.isEmpty()) return AudioLinkState.UNKNOWN
         val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull() ?: return AudioLinkState.UNKNOWN
         val any = proxies.map { p -> runCatching { p.getConnectionState(device) }.getOrNull() }
@@ -84,7 +87,7 @@ class AudioProfileMonitor(
     }
 
     fun connectedAddresses(): Set<String> =
-        listOfNotNull(a2dp, headset).flatMap { p -> runCatching { p.connectedDevices }.getOrNull().orEmpty() }.map { it.address }.toSet()
+        listOfNotNull(a2dp, headset, leAudio).flatMap { p -> runCatching { p.connectedDevices }.getOrNull().orEmpty() }.map { it.address }.toSet()
 
     @Synchronized fun stop() {
         if (!started) return
@@ -92,6 +95,13 @@ class AudioProfileMonitor(
         runCatching { context.unregisterReceiver(receiver) }
         a2dp?.let { runCatching { adapter.closeProfileProxy(BluetoothProfile.A2DP, it) } }
         headset?.let { runCatching { adapter.closeProfileProxy(BluetoothProfile.HEADSET, it) } }
-        a2dp = null; headset = null
+        leAudio?.let { runCatching { adapter.closeProfileProxy(LE_AUDIO, it) } }
+        a2dp = null; headset = null; leAudio = null
+    }
+
+    private companion object {
+        /** Public constants (API 33): BluetoothProfile.LE_AUDIO = 22 and BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED. */
+        const val LE_AUDIO = 22
+        const val LE_AUDIO_ACTION = "android.bluetooth.action.LE_AUDIO_CONNECTION_STATE_CHANGED"
     }
 }

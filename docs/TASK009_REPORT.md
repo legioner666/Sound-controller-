@@ -14,8 +14,18 @@ Source: owner's physical test of v0.8.11 (diagnostics JSON, session timeline in 
 | 8 | JBL native `AA 06` notifications | Not handled. | Envelope decoded (`subtype`, body length); body is **not** interpreted (no verified Tune Beam 2 sample in hand). A native notification triggers a state refresh through the verified Fast Pair source. |
 | 9 | Diagnostics export | Only headers were considered. | `HexPolicy`: allowlist by frame layout **and** payload length/value ranges; BLE-address payload always masked; unknown/odd frames exported as shape only. |
 
+## Round 2 (owner/GPT remarks on 005f602)
+1. `ControlStatus` has a new `DATA_ONLY` value: plain GATT or the Fast Pair stream no longer count as vendor control; `CONNECTED` requires a frame-confirmed vendor channel.
+2. ACL events no longer start sessions (they are logged only); sessions follow the A2DP/HFP/LE Audio profile monitor.
+3. `AudioProfileMonitor` also tracks LE Audio (public profile 22 / broadcast, Android 13+); it is process-lifetime (profile proxies + one receiver), started when Bluetooth is ready and permitted, also after a permission is granted later.
+4. Every refresh branch (disabled, stream open, failed open, success) ends in the same 5 s minimum gap; test floods triggers and failed opens.
+5. Real reopen test: each refresh gets a new transport that the "headset" closes after 5 s.
+6. `HexPolicy` accepts 0xFF (charging, unknown level) and the empty-payload request `03 05 00 00`.
+7. Independent time and source per battery component for percent and charging, and for the active components.
+8. Experimental `AA 06` battery decoder (id 0x1A/0x1B/0x1C = L/R/case, from the owner's v0.6.7 capture), applied only when the Fast Pair model is B484FB and firmware starts with 0.2.8; strict structure; the second capture `AA 06 05 00 02 00 06 01 05` is never interpreted. Charging-only reports are no longer dropped.
+
 ## Still open (honest list)
 - Physical scenarios from TASK 009 (case in/out per earbud, BT off/on, lock screen, music, 60 min, 20 reconnects) are not tested.
-- `AA 06` body meaning and any battery inside it: unknown until a Tune Beam 2 capture exists. Only the Wave Buds 2 captures of other projects show a similar envelope; not used.
+- `AA 06` mapping L/R/case is inferred from one capture (right and case match Fast Pair); left is unconfirmed; id 0x06 meaning unknown.
 - Fast Pair spec text could not be fetched; PSM byte order is from the owner's/GPT's table.
 - TWS main-earbud switch handling relies on fresh scan + identity check; behaviour on the real device is unverified.

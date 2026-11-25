@@ -95,11 +95,15 @@ class HexPolicyTest {
 
     @org.junit.Test fun payloadStructureAndRangesAreCheckedNotJustHeaders() {
         // right header, impossible payload -> shape only
-        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x3 length=3>", ex("x", "03 03 00 03 ff 90 22"))   // 0x90 low bits = 16 ok but 0xff/0x22 out of range
+        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x3 length=3>", ex("x", "03 03 00 03 7e 90 22"))   // 0x90 low bits = 16 ok but 0xff/0x22 out of range
         org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x1 length=5>", ex("x", "03 01 00 05 01 02 03 04 05"))
         org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x9 length=4>", ex("x", "03 09 00 04 aa bb cc dd"))   // non-text "firmware"
         org.junit.Assert.assertEquals("<aa cmd=0x9b length=2>", ex("x", "aa 9b 02 07 07"))
         org.junit.Assert.assertEquals("<aa cmd=0x91 length=4>", ex("x", "aa 91 04 12 aa bb cc"))
         org.junit.Assert.assertEquals("03 09 00 05 30 2e 32 2e 38", ex("x", "03 09 00 05 30 2e 32 2e 38"))
+        // owner remarks on 005f602: 0xFF = charging + unknown level is valid; the plain active-components request 03 05 00 00 is valid
+        org.junit.Assert.assertEquals("03 03 00 03 ff 62 5b", ex("x", "03 03 00 03 ff 62 5b"))
+        org.junit.Assert.assertEquals("03 05 00 00", ex("x", "03 05 00 00"))
+        org.junit.Assert.assertEquals("<fast-pair group=0x3 code=0x5 length=1>", ex("x", "03 05 00 01 01"))
     }
 }

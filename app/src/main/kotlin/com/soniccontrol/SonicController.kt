@@ -176,9 +176,7 @@ class SonicController(
         scope.launch {
             availability.collect { a ->
                 if (a == BluetoothAvailability.READY) {
-                    if (audioMonitor == null && adapter != null && BluetoothPermissions.canConnect(context)) {
-                        audioMonitor = com.soniccontrol.core.bluetooth.AudioProfileMonitor(context, adapter, ::onAudioProfile).also { it.start() }
-                    }
+                    ensureAudioMonitor()
                     scanner?.loadBonded(); scanner?.loadAudioConnected()
                     delay(800)
                     autoConnect()
@@ -224,13 +222,19 @@ class SonicController(
 
     private fun onAcl(address: String, connected: Boolean) {
         log.log(EventCategory.CONNECTION, if (connected) "ACL connected (not an audio signal)" else "ACL disconnected (not an audio signal)", address = address)
-        if (connected && active.value == null && db.settings.value.autoReconnect && db.settings.value.lastDevice == address) {
-            scope.launch { delay(1_500); if (active.value == null) sessions.connect(address) }
+        // Informational only: LE/ACL links say nothing about audio. Sessions start and stop from the audio profile monitor.
+    }
+
+    /** Process-lifetime monitor (it holds only profile proxies and one receiver); started once Bluetooth is ready and permitted. */
+    private fun ensureAudioMonitor() {
+        if (audioMonitor == null && adapter != null && BluetoothPermissions.canConnect(context)) {
+            audioMonitor = com.soniccontrol.core.bluetooth.AudioProfileMonitor(context, adapter, ::onAudioProfile).also { it.start() }
         }
     }
 
     override fun refreshAvailability() {
         monitor.refresh()
+        if (ready()) ensureAudioMonitor()
         if (ready()) { scanner?.loadBonded(); scanner?.loadAudioConnected() }
     }
 

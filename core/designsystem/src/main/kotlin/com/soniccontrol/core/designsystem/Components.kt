@@ -209,6 +209,7 @@ fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modif
 fun sourceLabel(source: DataSource): String = stringResource(
     when (source) {
         DataSource.VENDOR_PROTOCOL -> R.string.source_vendor
+        DataSource.VENDOR_NATIVE_EXPERIMENTAL -> R.string.source_vendor_native
         DataSource.FAST_PAIR_STREAM -> R.string.source_fast_pair
         DataSource.BLE_BATTERY_SERVICE -> R.string.source_ble_bas
         DataSource.APPLE_CONTINUITY_ADVERT -> R.string.source_apple_advert

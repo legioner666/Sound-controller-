@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="source_vendor_native">natywne powiadomienie JBL (eksperymentalne)</string>
     <string name="tab_music">Muzyka</string>
     <string name="settings_background">Monitorowanie w tle</string>
     <string name="settings_background_body">Wyświetla powiadomienie, aby bateria, ładowanie i tryb redukcji szumów były aktualne, gdy aplikacja jest zamknięta. Można zatrzymać z powiadomienia.</string>

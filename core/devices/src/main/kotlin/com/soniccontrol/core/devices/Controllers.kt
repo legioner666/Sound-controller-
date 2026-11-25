@@ -43,7 +43,14 @@ data class CharacteristicInfo(
 data class ServiceInfo(val uuid: UUID, val name: String?, val characteristics: List<CharacteristicInfo>)
 
 /** Whether the app can currently read/control the headset; independent of whether audio is connected. */
-enum class ControlStatus { CONNECTED, RECONNECTING, UNAVAILABLE }
+enum class ControlStatus {
+    /** The vendor command channel was confirmed by a valid frame. */
+    CONNECTED,
+    /** Only read-only sources (plain GATT, Fast Pair stream) are up; commands cannot be sent. A GATT link alone never means control. */
+    DATA_ONLY,
+    RECONNECTING,
+    UNAVAILABLE,
+}
 
 data class ActiveDevice(
     val identity: DeviceIdentity,
@@ -58,7 +65,8 @@ data class ActiveDevice(
 ) {
     /** Never derived from [connection] alone: a session can be Active while every channel is down. */
     val controlStatus: ControlStatus get() = when {
-        links.control == ChannelState.CONFIRMED || links.gatt == ChannelState.CONFIRMED || links.rfcomm == ChannelState.CONFIRMED -> ControlStatus.CONNECTED
+        links.control == ChannelState.CONFIRMED -> ControlStatus.CONNECTED
+        links.gatt == ChannelState.CONFIRMED || links.rfcomm == ChannelState.CONFIRMED -> ControlStatus.DATA_ONLY
         headphone.live.reconnect?.startsWith("gave up") == false || connection is ConnectionState.Reconnecting || connection == ConnectionState.Starting -> ControlStatus.RECONNECTING
         else -> ControlStatus.UNAVAILABLE
     }

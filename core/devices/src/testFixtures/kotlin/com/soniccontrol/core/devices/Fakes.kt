@@ -76,7 +76,9 @@ class FakeLink(
     }
     override val activeSubscriptions: Int get() = notifyFlows.size
     override suspend fun openGattChannel(service: UUID, notify: UUID?, write: UUID?) = gattChannel
-    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? { opened += uuid; openedWritable = writable; return rfcomm[uuid] }
+    /** When set, every open asks the factory (a fresh transport per open, or null = failed open). */
+    var rfcommFactory: ((UUID) -> BluetoothTransport?)? = null
+    override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? { opened += uuid; openedWritable = writable; return rfcommFactory?.invoke(uuid) ?: if (rfcommFactory != null) null else rfcomm[uuid] }
     override suspend fun suggestEndpoint(address: String, modelIdHex: String?): Boolean { suggested += address to modelIdHex; return false }
     override fun manufacturerAdverts(companyId: Int): Flow<ManufacturerAdvert> = adverts
     override suspend fun close() { closed = true }

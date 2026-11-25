@@ -4,6 +4,8 @@ import com.soniccontrol.core.devices.BaseDriverSession
 import com.soniccontrol.core.devices.Brand
 import com.soniccontrol.core.devices.BluetoothTransport
 import com.soniccontrol.core.devices.CatalogEntry
+import com.soniccontrol.core.devices.BatteryLevel
+import com.soniccontrol.core.devices.BatteryStatus
 import com.soniccontrol.core.devices.ChannelState
 import com.soniccontrol.core.devices.Notice
 import com.soniccontrol.core.devices.CommandExecutor
@@ -196,6 +198,15 @@ internal class JblSession(
                 // A native notification means the earbuds changed something (case, wear, mode). Contents are not interpreted
                 // (no verified Tune Beam 2 sample); the state is re-read through the verified Fast Pair source instead.
                 log(EventCategory.DRIVER, "native notification subtype=0x${n.subtype.toString(16)} bodyLength=${n.bodyLength}: refreshing state")
+                JblProtocol.P3.parseNativeBattery(f)?.let { nb ->
+                    val s = state.value
+                    val verified = s.modelId.equals("B484FB", ignoreCase = true) && s.firmware?.startsWith("0.2.8") == true
+                    if (verified) {
+                        val now = env.clock()
+                        fun lv(v: Int?) = v?.let { BatteryLevel(it, null, false, now, null, DataSource.VENDOR_NATIVE_EXPERIMENTAL) }
+                        acceptBattery(BatteryStatus(left = lv(nb.left), right = lv(nb.right), case = lv(nb.case), source = DataSource.VENDOR_NATIVE_EXPERIMENTAL, timestampMillis = now))
+                    } else log(EventCategory.DRIVER, "native battery notification decoded but not applied: model/firmware not B484FB / 0.2.8.x")
+                }
                 requestRefresh("jbl native notification")
                 return
             }

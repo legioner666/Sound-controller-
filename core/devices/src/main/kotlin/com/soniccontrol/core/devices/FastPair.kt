@@ -214,7 +214,7 @@ object BatteryMerge {
     /** Chooses which reading to show when several sources report. Never invents values. */
     fun prefer(current: BatteryStatus?, incoming: BatteryStatus): BatteryStatus {
         if (current == null || !current.hasAnyValue) return stamp(incoming)
-        if (!incoming.hasAnyValue) return current
+        if (!incoming.hasAnyValue && !incoming.hasChargingInfo) return current
         if (incoming.perComponent() && current.perComponent()) return mergeComponents(current, incoming)
         if (incoming.perComponent() || !current.perComponent()) return stamp(incoming)
         // current is per-component, incoming is a single value: a single BLE Battery Service value never replaces component readings.
@@ -222,19 +222,32 @@ object BatteryMerge {
     }
 
     private fun stamp(b: BatteryStatus): BatteryStatus {
-        fun BatteryLevel?.s() = this?.let { if (it.updatedMillis == null) it.copy(updatedMillis = b.timestampMillis) else it }
+        fun BatteryLevel?.s() = this?.let {
+            it.copy(
+                updatedMillis = it.updatedMillis ?: b.timestampMillis.takeIf { _ -> it.percent != null },
+                chargingUpdatedMillis = it.chargingUpdatedMillis ?: b.timestampMillis.takeIf { _ -> it.charging != null },
+                source = it.source ?: b.source,
+            )
+        }
         return b.copy(left = b.left.s(), right = b.right.s(), case = b.case.s(), single = b.single.s())
     }
 
-    /** Component by component: a report without a percentage keeps the last known one (marked), a known one replaces it. */
+    /**
+     * Component by component. Percent, charging and source each keep their own time: a report without a percentage keeps the
+     * last known percent (marked, with its old time) while a reported charging flag gets the new time, and the other way round.
+     */
     private fun mergeComponents(cur: BatteryStatus, inc: BatteryStatus): BatteryStatus {
         fun one(c: BatteryLevel?, i: BatteryLevel?): BatteryLevel? {
             if (i == null) return c?.let { if (it.percent != null) it.copy(lastKnown = true) else it }
             val now = i.updatedMillis ?: inc.timestampMillis
-            if (i.percent != null) return i.copy(lastKnown = false, updatedMillis = now)
-            val keep = c?.percent
-            return if (keep != null) BatteryLevel(keep, i.charging ?: c.charging, lastKnown = true, updatedMillis = c.updatedMillis)
-            else BatteryLevel(null, i.charging, updatedMillis = now)
+            val charging = i.charging ?: c?.charging
+            val chargingAt = if (i.charging != null) (i.chargingUpdatedMillis ?: inc.timestampMillis) else c?.chargingUpdatedMillis
+            return if (i.percent != null) BatteryLevel(i.percent, charging, false, now, chargingAt, i.source ?: inc.source)
+            else {
+                val keep = c?.percent
+                if (keep != null) BatteryLevel(keep, charging, true, c.updatedMillis, chargingAt, c.source)
+                else BatteryLevel(null, charging, false, null, chargingAt, i.source ?: inc.source)
+            }
         }
         return BatteryStatus(
             left = one(cur.left, inc.left), right = one(cur.right, inc.right), case = one(cur.case, inc.case),

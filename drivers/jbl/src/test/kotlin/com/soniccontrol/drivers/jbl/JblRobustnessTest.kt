@@ -166,6 +166,23 @@ class JblNativeNotificationTest {
         org.junit.Assert.assertNull(JblProtocol.P3.parseBattery(f, 0L))
     }
 
+    private fun nb(h: String) = JblProtocol.P3.parseNativeBattery(JblProtocol.P3.parse(hex(h))!!)
+
+    /** The exact packet from the owner's v0.6.7 capture (B484FB, fw 0.2.8.0). */
+    @org.junit.Test fun realCaptureDecodesToLeftRightCase() {
+        val n = nb("aa 06 10 00 02 00 1a 02 00 64 00 1b 02 00 5d 00 1c 02 00 5b")!!
+        org.junit.Assert.assertEquals(listOf(100, 93, 91), listOf(n.left, n.right, n.case))
+    }
+
+    @org.junit.Test fun unknownOrMalformedNativeBodiesAreNeverInterpreted() {
+        org.junit.Assert.assertNull(nb("aa 06 05 00 02 00 06 01 05"))                                         // second capture: semantics unknown
+        org.junit.Assert.assertNull(nb("aa 06 10 00 02 00 1a 02 00 65 00 1b 02 00 5d 00 1c 02 00 5b"))      // 101 %
+        org.junit.Assert.assertNull(nb("aa 06 10 00 02 00 1a 02 00 64 00 1a 02 00 5d 00 1c 02 00 5b"))      // duplicate id
+        org.junit.Assert.assertNull(nb("aa 06 10 00 03 00 1a 02 00 64 00 1b 02 00 5d 00 1c 02 00 5b"))      // unknown lead byte
+        org.junit.Assert.assertNull(nb("aa 06 10 00 02 00 1a 03 00 64 00 1b 02 00 5d 00 1c 02 00 5b"))      // wrong record length
+        org.junit.Assert.assertNull(nb("aa 06 10 00 02 00 2a 02 00 64 00 1b 02 00 5d 00 1c 02 00 5b"))      // unknown id
+    }
+
     @org.junit.Test fun truncatedOrWrongLengthNativeFramesAreRejected() {
         org.junit.Assert.assertNull(JblProtocol.P3.parse(hex("aa 06 05 00 02 00 1f")))
         org.junit.Assert.assertNull(JblProtocol.P3.parseNative(JblProtocol.P3.parse(hex("aa 06 01 00 02"))!!))

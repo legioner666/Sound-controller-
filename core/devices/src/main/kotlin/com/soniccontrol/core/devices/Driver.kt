@@ -51,6 +51,9 @@ data class HeadphoneState(
     /** From the Fast Pair Message Stream, when the headset provides it. Null = unknown, never a guess. */
     val remainingMinutes: Int? = null,
     val active: ActiveComponents? = null,
+    /** When and from where [active] was last reported; independent of the battery timestamps. */
+    val activeUpdatedMillis: Long? = null,
+    val activeSource: DataSource? = null,
     val modelId: String? = null,
     val fastPair: FastPairCapabilities? = null,
     /** Short, human-readable protocol identification, shown in the Lab. */

@@ -100,6 +100,34 @@ object JblProtocol {
         fun parseNative(f: Frame): Native? =
             if (f.command == CMD_NATIVE && f.payload.size >= 2) Native(f.payload.u16le(0), f.payload.size - 2) else null
 
+        /** Observed component ids inside native notifications (JBL Tune Beam 2, B484FB, fw 0.2.8.0): meaning inferred from one capture. */
+        const val NATIVE_ID_LEFT = 0x1A
+        const val NATIVE_ID_RIGHT = 0x1B
+        const val NATIVE_ID_CASE = 0x1C
+
+        data class NativeBattery(val left: Int?, val right: Int?, val case: Int?)
+
+        /**
+         * EXPERIMENTAL. Layout observed in a v0.6.7 capture: `AA 06 <len16 LE>` then payload
+         * `02 | 00 1A 02 00 64 | 00 1B 02 00 5D | 00 1C 02 00 5B` = one leading byte (0x02, meaning unknown) and records of
+         * `id u16 BE | length u8 = 2 | value u16 BE`; 0x1A/0x1B/0x1C = 100/93/91 %, the right and case values matching Fast Pair.
+         * Strict: exact structure, known ids only, no duplicates, 0..100. Anything else (including record id 0x06 seen in
+         * `AA 06 05 00 02 00 06 01 05`) returns null and is never interpreted.
+         */
+        fun parseNativeBattery(f: Frame): NativeBattery? {
+            if (f.command != CMD_NATIVE || f.payload.size < 6 || f.payload.u8(0) != 0x02 || (f.payload.size - 1) % 5 != 0) return null
+            val values = HashMap<Int, Int>()
+            var i = 1
+            while (i < f.payload.size) {
+                val id = f.payload.u8(i) shl 8 or f.payload.u8(i + 1)
+                val len = f.payload.u8(i + 2)
+                val v = f.payload.u8(i + 3) shl 8 or f.payload.u8(i + 4)
+                if (len != 2 || v !in 0..100 || id !in setOf(NATIVE_ID_LEFT, NATIVE_ID_RIGHT, NATIVE_ID_CASE) || values.put(id, v) != null) return null
+                i += 5
+            }
+            return NativeBattery(values[NATIVE_ID_LEFT], values[NATIVE_ID_RIGHT], values[NATIVE_ID_CASE])
+        }
+
         fun versionGet() = frame(CMD_VERSION, bytesOf(0x30))
         fun batteryGet() = frame(CMD_BATTERY, bytesOf(0x00))
         fun listeningModeGet() = frame(CMD_LISTENING_MODE, bytesOf(OP_GET))

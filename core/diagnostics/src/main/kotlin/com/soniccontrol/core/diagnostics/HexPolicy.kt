@@ -60,9 +60,9 @@ object HexPolicy {
     /** Payload structure and value ranges per allowed Fast Pair code; anything else is exported by shape only. */
     private fun validFastPairPayload(code: Int, p: List<Int>): Boolean = when (code) {
         0x01 -> p.size == 3                                                       // model id
-        0x03 -> p.size == 3 && p.all { it == 0x7F || (it and 0x7F) in 0..100 }    // left, right, case: level or 0x7F unknown, high bit = charging
+        0x03 -> p.size == 3 && p.all { (it and 0x7F) == 0x7F || (it and 0x7F) in 0..100 }    // 0x7F/0xFF = unknown level (0xFF: charging, unknown level)    // left, right, case: level or 0x7F unknown, high bit = charging
         0x04 -> p.size == 2                                                       // remaining minutes
-        0x05 -> p.size == 1 && p[0] <= 0x03                                       // active components request
+        0x05 -> p.isEmpty()                                                      // active components request carries no payload (03 05 00 00)
         0x06 -> p.size == 1 && p[0] <= 0x03                                       // bit0 right, bit1 left
         0x09 -> p.size in 1..16 && p.all { it in 0x20..0x7E }                     // firmware version text
         else -> false

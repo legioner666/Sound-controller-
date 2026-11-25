@@ -78,7 +78,7 @@ abstract class BaseDriverSession(
     protected fun <T : BluetoothTransport> track(t: T): T = t.also { synchronized(transports) { transports += it } }
 
     protected fun acceptBattery(status: BatteryStatus) {
-        if (!status.hasAnyValue) return
+        if (!status.hasAnyValue && !status.hasChargingInfo) return
         update { s ->
             val merged = BatteryMerge.prefer(s.battery, status)
             val caps = if (merged.left != null || merged.right != null) {
@@ -96,6 +96,7 @@ abstract class BaseDriverSession(
         DataSource.BLE_BATTERY_SERVICE, DataSource.FAST_PAIR_STREAM -> SupportStatus.SUPPORTED
         DataSource.APPLE_CONTINUITY_ADVERT, DataSource.FAST_PAIR_ADVERT -> SupportStatus.EXPERIMENTAL
         DataSource.VENDOR_PROTOCOL -> SupportStatus.SUPPORTED
+        DataSource.VENDOR_NATIVE_EXPERIMENTAL -> SupportStatus.EXPERIMENTAL
     }
 
     /** Starts the passive battery sources. Safe for any device: nothing is written to the headset. */
@@ -223,23 +224,28 @@ abstract class BaseDriverSession(
             var silent = 0
             while (true) {
                 val reason = kotlinx.coroutines.withTimeoutOrNull(interval) { refreshTriggers.receive() } ?: "scheduled"
-                if (!env.fastPairListening.value) continue
-                if (currentStream?.state?.value == TransportState.Open) continue   // a stream is already open: never stack another
-                val before = refreshSignature()
-                val stream = openFastPairStream()
-                if (stream == null) {
-                    if (++silent >= 2) markBatteryStale()
-                    interval = (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
-                    continue
-                }
-                silent = 0
-                log(EventCategory.RFCOMM, "Fast Pair refresh ($reason)")
-                launch { consumeStream(stream) }
-                stream.state.first { it != TransportState.Open }
-                interval = if (refreshSignature() != before) REFRESH_MIN_MILLIS else (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
+                // Every branch below (disabled, stream still open, failed open, success) ends in the same minimum gap,
+                // so a flood of triggers or repeated failures can never cause rapid socket opens.
+                interval = refreshOnce(reason, interval) { silent++ >= 1 }.also { if (it == REFRESH_MIN_MILLIS) silent = 0 }
                 kotlinx.coroutines.delay(REFRESH_MIN_GAP_MILLIS)
             }
         }
+    }
+
+    /** One refresh attempt; returns the next idle interval. [shouldMarkStale] is asked after a failed open. */
+    private suspend fun refreshOnce(reason: String, interval: Long, shouldMarkStale: () -> Boolean): Long {
+        if (!env.fastPairListening.value) return interval
+        if (currentStream?.state?.value == TransportState.Open) return interval   // a stream is open: never stack another
+        val before = refreshSignature()
+        val stream = openFastPairStream()
+        if (stream == null) {
+            if (shouldMarkStale()) markBatteryStale()
+            return (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
+        }
+        log(EventCategory.RFCOMM, "Fast Pair refresh ($reason)")
+        launch { consumeStream(stream) }
+        stream.state.first { it != TransportState.Open }
+        return if (refreshSignature() != before) REFRESH_MIN_MILLIS else (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
     }
 
     /** Standard Device Information Service: firmware revision (read-only). Used for identification only. */
@@ -362,7 +368,7 @@ abstract class BaseDriverSession(
                 is FastPairEvent.Battery -> acceptBattery(e.status)
                 is FastPairEvent.Firmware -> update { it.copy(firmware = it.firmware ?: e.version) }
                 is FastPairEvent.RemainingMinutes -> update { it.copy(remainingMinutes = e.minutes) }
-                is FastPairEvent.Active -> { answered.complete(true); update { it.copy(active = e.components) } }
+                is FastPairEvent.Active -> { answered.complete(true); update { it.copy(active = e.components, activeUpdatedMillis = env.clock(), activeSource = DataSource.FAST_PAIR_STREAM) } }
                 is FastPairEvent.BleAddress -> launch {
                     // Priority GATT candidate for this session only; if GATT opens now, read the standard sources again.
                     if (link.suggestEndpoint(e.address, streamModelId)) launchGattSources()
