@@ -41,7 +41,7 @@ class PlayerConnection(context: Context) {
     /** Connects (and starts) the service on first use. Safe to call repeatedly. */
     fun connect() {
         if (controller != null || pending != null) return
-        val token = SessionToken(app, ComponentName(app, SonicPlaybackService::class.java))
+        val token = SessionToken(app, ComponentName(app.packageName, "com.soniccontrol.core.player.SonicPlaybackService"))
         val f = MediaController.Builder(app, token).setListener(object : MediaController.Listener {
             override fun onExtrasChanged(c: MediaController, extras: Bundle) = refresh()
             override fun onDisconnected(c: MediaController) { controller = null; pending = null; _state.value = PlayerUiState() }

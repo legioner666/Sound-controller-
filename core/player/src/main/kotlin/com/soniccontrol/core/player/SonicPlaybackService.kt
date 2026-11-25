@@ -26,6 +26,7 @@ import com.soniccontrol.core.musiclibrary.QueueSnapshot
  *  - the queue is restored PAUSED, and nothing starts music after a reboot: there is no boot receiver and no playback-resumption callback.
  * Independent of the headphone monitoring service.
  */
+@androidx.media3.common.util.UnstableApi
 class SonicPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private lateinit var player: ExoPlayer
@@ -167,7 +168,7 @@ class SonicPlaybackService : MediaSessionService() {
             when (customCommand.customAction) {
                 PlayerCommands.SLEEP_TIMER.customAction -> setSleepTimer(args.getInt(PlayerCommands.ARG_MINUTES, 0))
                 PlayerCommands.BASS_BOOST.customAction -> setBass(args.getInt(PlayerCommands.ARG_STRENGTH, 0))
-                else -> return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+                else -> return Futures.immediateFuture(SessionResult(androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED))
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
