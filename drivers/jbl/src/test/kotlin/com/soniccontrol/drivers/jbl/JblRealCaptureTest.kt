@@ -123,7 +123,7 @@ class JblRealCaptureTest {
     }
 
     private fun TestScope.jbl(link: FakeLink): com.soniccontrol.core.devices.DriverSession {
-        val env = DriverEnvironment(backgroundScope, MutableStateFlow(true), MutableStateFlow(false), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true)
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(true), MutableStateFlow(false), DiagnosticSink { }, { testScheduler.currentTime })
         return JblDriver().createSession(link, DeviceIdentity("AA:BB:CC:00:11:22", "JBL Tune Beam 2"), env)
     }
 
@@ -153,16 +153,19 @@ class JblRealCaptureTest {
         assertEquals(1, s.state.value.live.reconnects)
     }
 
-    @Test fun modeIsPolledWithTheConfirmedGetOnlyAtALongInterval() = runTest(UnconfinedTestDispatcher()) {
+    /** TASK 011: the driver never polls on its own; the single refresh loop asks for the mode with the confirmed read-only GET. */
+    @Test fun modeIsReadOnlyWhenTheRefreshLoopAsksAndOnlyWithTheConfirmedGet() = runTest(UnconfinedTestDispatcher()) {
         val ch = deviceChannel()
         val s = jbl(FakeLink(services = setOf(JblProtocol.HARMAN_SERVICE), gattChannel = ch)); s.start()
         val gets = { ch.written.count { Hex.encode(it) == "aa 91 01 11" } }
         val before = gets()
-        testScheduler.advanceTimeBy(30_000); testScheduler.runCurrent()
-        assertEquals(before, gets())
-        testScheduler.advanceTimeBy(31_000); testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(30 * 60_000); testScheduler.runCurrent()
+        assertEquals("no polling loop inside the driver", before, gets())
+        s.refreshNow("interval"); testScheduler.runCurrent()
         assertEquals(before + 1, gets())
-        assertTrue(ch.written.none { Hex.encode(it).startsWith("aa 91 07 10") })   // polling never sends SET commands
+        s.refreshNow("interval"); testScheduler.runCurrent()
+        assertEquals(before + 2, gets())
+        assertTrue(ch.written.none { Hex.encode(it).startsWith("aa 91 07 10") })   // refreshing never sends SET commands
     }
 
     private fun TestScope.jblFp(link: FakeLink): com.soniccontrol.core.devices.DriverSession {

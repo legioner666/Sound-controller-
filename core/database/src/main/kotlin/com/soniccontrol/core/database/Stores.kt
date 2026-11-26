@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.soniccontrol.core.devices.BatteryStatus
@@ -34,7 +35,16 @@ data class AppSettings(
     val eqProfileId: String = "flat",
     /** -1 left … +1 right. */
     val balance: Float = 0f,
-)
+    /** Headset refresh interval while the main screen is open (another section uses twice this). One of [REFRESH_ACTIVE_CHOICES]. */
+    val refreshActiveSeconds: Int = 5,
+    /** Headset refresh interval in the background and with the screen locked. One of [REFRESH_BACKGROUND_CHOICES]. */
+    val refreshBackgroundSeconds: Int = 60,
+) {
+    companion object {
+        val REFRESH_ACTIVE_CHOICES = listOf(5, 10, 15, 30)
+        val REFRESH_BACKGROUND_CHOICES = listOf(30, 60, 120, 300)
+    }
+}
 
 /**
  * All persistent data, on the phone only (DataStore). No accounts, no cloud, no analytics.
@@ -55,6 +65,8 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
         val systemEq = booleanPreferencesKey("system_eq")
         val eqProfile = stringPreferencesKey("eq_profile_id")
         val balance = floatPreferencesKey("balance")
+        val refreshActive = intPreferencesKey("refresh_active_s")
+        val refreshBackground = intPreferencesKey("refresh_background_s")
     }
 
     val settings: StateFlow<AppSettings> = context.store.data.map { p ->
@@ -69,6 +81,8 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
             systemEq = p[K.systemEq] ?: false,
             eqProfileId = p[K.eqProfile] ?: "flat",
             balance = (p[K.balance] ?: 0f).coerceIn(-1f, 1f),
+            refreshActiveSeconds = p[K.refreshActive]?.takeIf { it in AppSettings.REFRESH_ACTIVE_CHOICES } ?: 5,
+            refreshBackgroundSeconds = p[K.refreshBackground]?.takeIf { it in AppSettings.REFRESH_BACKGROUND_CHOICES } ?: 60,
         )
     }.stateIn(scope, SharingStarted.Eagerly, AppSettings())
 
@@ -85,6 +99,8 @@ class SonicDatabase(private val context: Context, scope: CoroutineScope) {
     suspend fun setAutoReconnect(v: Boolean) = context.store.edit { it[K.autoReconnect] = v }
     suspend fun setFastPairListening(v: Boolean) = context.store.edit { it[K.fastPair] = v }
     suspend fun setBackgroundMonitoring(v: Boolean) = context.store.edit { it[K.backgroundMonitoring] = v }
+    suspend fun setRefreshActiveSeconds(v: Int) { if (v in AppSettings.REFRESH_ACTIVE_CHOICES) context.store.edit { it[K.refreshActive] = v } }
+    suspend fun setRefreshBackgroundSeconds(v: Int) { if (v in AppSettings.REFRESH_BACKGROUND_CHOICES) context.store.edit { it[K.refreshBackground] = v } }
     suspend fun setLastDevice(address: String?) = context.store.edit { if (address == null) it.remove(K.lastDevice) else it[K.lastDevice] = address }
     suspend fun setOnboardingDone() = context.store.edit { it[K.onboarding] = true }
     suspend fun setSystemEq(v: Boolean) = context.store.edit { it[K.systemEq] = v }

@@ -53,11 +53,15 @@ class SoakSimulationTest {
             }
         }
 
-        val env = DriverEnvironment(sessionScope, MutableStateFlow(false), MutableStateFlow(true), DiagnosticSink { }, clock, periodicRefresh = true, coordinator = coordinator)
+        // The app's wiring (TASK 011): one AdaptiveRefreshCoordinator drives every refresh; the lifecycle alternates below.
+        val refresher = AdaptiveRefreshCoordinator(backgroundScope, clock)
+        val env = DriverEnvironment(sessionScope, MutableStateFlow(false), MutableStateFlow(true), DiagnosticSink { }, clock, refreshRequests = refresher::requestNow, coordinator = coordinator)
         val s = object : BaseDriverSession(link, DeviceIdentity(link.address, "Fake"), env, "t", HeadphoneState("Fake")) {
             override suspend fun start() = startUniversalSources()
         }
         s.start(); runCurrent()
+        refresher.setMode(AdaptiveRefreshCoordinator.Mode.MAIN_SCREEN); refresher.start(); refresher.attach { s.refreshNow(it) }
+        val modes = AdaptiveRefreshCoordinator.Mode.entries
 
         advanceTimeBy(1 * hour); runCurrent()
         val baselineCoroutines = sessionJob.activeDescendants()
@@ -84,7 +88,13 @@ class SoakSimulationTest {
 
         // steady state after recovery: sample live coroutines every hour; a leak would grow with every refresh (~12+/h)
         val samples = mutableListOf<Int>()
-        repeat(8) { advanceTimeBy(1 * hour); runCurrent(); samples += sessionJob.activeDescendants() }
+        repeat(8) { h ->
+            refresher.setMode(modes[h % modes.size])           // main screen, section, background, locked, …
+            repeat(4) { refresher.requestNow("notification"); advanceTimeBy(hour / 4) }
+            runCurrent(); samples += sessionJob.activeDescendants()
+        }
+        assertEquals("never two refreshes at once", 0, s.refreshStats.skippedBusy)
+        assertTrue("GATT reads served most refreshes: ${s.refreshStats}", s.refreshStats.gattReads > openTimes.size * 5)
 
         // every rolling hour within budget, never two streams at once
         val perHourMax = openTimes.maxOfOrNull { start -> openTimes.count { it in start until start + hour } } ?: 0
@@ -97,6 +107,8 @@ class SoakSimulationTest {
         assertTrue("coroutines bounded over 8 h: baseline $baselineCoroutines, hourly $samples", samples.max() <= baselineCoroutines + 6 && samples.count { it == baselineCoroutines } >= 4)
         // data is current at the end
         assertTrue(s.state.value.battery?.left?.isCurrent(testScheduler.currentTime) == true)
+        refresher.detach(); refresher.close(); runCurrent()
+        assertTrue(!refresher.running)
         sessionJob.cancel()
     }
 }

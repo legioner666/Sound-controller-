@@ -83,6 +83,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        (application as SonicApp).container.controller.setForeground(true)
+    }
+
+    override fun onStop() {
+        (application as SonicApp).container.controller.setForeground(false)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         (application as SonicApp).container.controller.refreshAvailability()
@@ -122,6 +132,7 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
+    LaunchedEffect(current) { controller.setMainScreen(current == null || current == NavTab.HOME.route) }
     val scope = rememberCoroutineScope()
 
     if (showOnboarding) {

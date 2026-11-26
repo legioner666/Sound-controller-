@@ -47,6 +47,8 @@ class SessionManager(
     private val onStarted: suspend (address: String) -> Unit = {},
     /** One coordinator for the whole process: budgets and breakers survive session restarts, so restart loops stay bounded too. */
     val coordinator: ConnectionCoordinator = ConnectionCoordinator(clock),
+    /** The single refresh loop of the process (TASK 011). The running session is attached to it; stopping detaches it. The owner calls [AdaptiveRefreshCoordinator.start]. */
+    val refresher: AdaptiveRefreshCoordinator = AdaptiveRefreshCoordinator(scope, clock),
 ) {
     private sealed interface Op {
         data class Connect(val address: String) : Op
@@ -91,6 +93,9 @@ class SessionManager(
     val currentSessionGen: Long? get() = running?.gen
 
     /** The link of the current session, for read-only Lab inspection. */
+    /** The running session, for diagnostics only. */
+    fun currentSession(): DriverSession? = running?.session
+
     fun currentLink(): DeviceLink? = running?.link
 
     /**
@@ -177,7 +182,7 @@ class SessionManager(
             _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Failed("Bluetooth unavailable"), HeadphoneState(identity.name ?: address))
             return
         }
-        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock, periodicRefresh = true, coordinator = coordinator))
+        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock, refreshRequests = refresher::requestNow, coordinator = coordinator))
         val audio = links.audioState(address)
         running = Running(myGen, address, session, link, sessionScope)
         _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Starting, session.state.value, LinkStatus(audio = audio))
@@ -197,6 +202,7 @@ class SessionManager(
             } catch (e: Exception) {
                 log(EventCategory.ERROR, "session $myGen start failed: ${e.message}", address); false
             }
+            if (ok && gen == myGen) refresher.attach { reason -> if (gen == myGen) session.refreshNow(reason) }
             ops.send(Op.Started(myGen, address, attempt, ok))
         }
     }
@@ -205,6 +211,7 @@ class SessionManager(
         val r = running ?: return
         running = null
         gen += 1
+        refresher.detach()
         try { r.session.stop() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
         try { r.link.close() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
         r.scope.cancel()

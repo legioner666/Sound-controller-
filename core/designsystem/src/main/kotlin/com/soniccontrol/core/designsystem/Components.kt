@@ -172,6 +172,21 @@ fun Banner(text: String, kind: BannerKind = BannerKind.INFO, actionLabel: String
     }
 }
 
+/** Age of a last-known value: "updated 45 s ago", "… 3 min ago", "… 2 h ago". Null when the time is unknown. */
+@Composable
+fun updatedAgo(updatedMillis: Long?, now: Long): String? {
+    val t = updatedMillis ?: return null
+    val s = ((now - t) / 1000).coerceAtLeast(0)
+    return when {
+        s < 60 -> stringResource(R.string.updated_ago_seconds, s.toInt())
+        s < 3600 -> stringResource(R.string.updated_ago_minutes, (s / 60).toInt())
+        else -> stringResource(R.string.updated_ago_hours, (s / 3600).toInt())
+    }
+}
+
+/** A value this old gets its age shown next to it, even before it counts as stale. */
+const val SHOW_AGE_AFTER_MILLIS = 120_000L
+
 /** Ring gauge for one battery component. Shows "—" when there is no real reading. */
 @Composable
 fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modifier, diameter: Int = 84, active: Boolean? = null) {
@@ -207,7 +222,13 @@ fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modif
             Text("⚡ $charging", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
         if (active == false) Text(stringResource(R.string.battery_inactive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (stale) Text(stringResource(R.string.battery_last_known), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val age = level?.updatedMillis?.takeIf { pct != null && now - it >= SHOW_AGE_AFTER_MILLIS }?.let { updatedAgo(it, now) }
+        if (stale || age != null) {
+            Text(
+                listOfNotNull(if (stale) stringResource(R.string.battery_last_known) else null, age).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

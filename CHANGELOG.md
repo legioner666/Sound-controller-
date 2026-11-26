@@ -1,5 +1,8 @@
 # Журнал змін
 
+## 0.8.x (TASK 011)
+- Adaptive refresh by app lifecycle: one AdaptiveRefreshCoordinator for the process (main screen 5 s, other sections 10 s, background and locked screen 60 s; immediate refresh on return to the foreground and on Bluetooth notifications; stops when the headset disconnects and after the sleep timer). Source priority: notifications, read over the open GATT link, the open Fast Pair stream, a new RFCOMM socket only when its data is old and within the 40/h budget. Settings 5/10/15/30 s and 30/60/120/300 s. Age of last-known values shown. See docs/TASK011_REPORT.md.
+
 ## 0.8.x (TASK 010)
 - Single connection coordinator: hourly socket budget, circuit breaker, event-driven recovery that never gives up for good; leaks of stream readers and transports fixed; scanner LRU; time-based freshness for battery, charging and active earbuds; separate audio / telemetry / control status; build and process identity in diagnostics; 12-hour simulation test. See docs/TASK010_REPORT.md.
 

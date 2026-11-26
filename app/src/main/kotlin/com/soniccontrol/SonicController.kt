@@ -145,6 +145,44 @@ class SonicController(
 
     override val active: StateFlow<ActiveDevice?> = sessions.active
 
+    // ---------------- Adaptive refresh (TASK 011) ----------------
+
+    /** The single refresh loop of the process; the running session is attached to it by [SessionManager]. */
+    val refresher: com.soniccontrol.core.devices.AdaptiveRefreshCoordinator get() = sessions.refresher
+
+    @Volatile private var uiForeground = false
+    @Volatile private var uiMainScreen = true
+    @Volatile private var screenLocked = false
+
+    /** MainActivity ON_START / ON_STOP. */
+    fun setForeground(foreground: Boolean) { uiForeground = foreground; applyRefreshMode() }
+
+    /** The visible navigation route is the main (home) screen or another section. */
+    fun setMainScreen(main: Boolean) { uiMainScreen = main; applyRefreshMode() }
+
+    private fun applyRefreshMode() {
+        val mode = when {
+            screenLocked -> com.soniccontrol.core.devices.AdaptiveRefreshCoordinator.Mode.LOCKED
+            !uiForeground -> com.soniccontrol.core.devices.AdaptiveRefreshCoordinator.Mode.BACKGROUND
+            uiMainScreen -> com.soniccontrol.core.devices.AdaptiveRefreshCoordinator.Mode.MAIN_SCREEN
+            else -> com.soniccontrol.core.devices.AdaptiveRefreshCoordinator.Mode.SECTION
+        }
+        refresher.setMode(mode)
+    }
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, intent: Intent) {
+            screenLocked = when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> true
+                Intent.ACTION_USER_PRESENT -> false
+                // Screen on without a secure lock screen counts as unlocked; with one, USER_PRESENT follows on unlock.
+                Intent.ACTION_SCREEN_ON -> (c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager).isKeyguardLocked
+                else -> screenLocked
+            }
+            applyRefreshMode()
+        }
+    }
+
     private val _results = MutableSharedFlow<ActionResult>(extraBufferCapacity = 16)
     override val results: SharedFlow<ActionResult> = _results
 
@@ -172,6 +210,20 @@ class SonicController(
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
         ContextCompat.registerReceiver(context, aclReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // System broadcasts; SCREEN_OFF/ON are only delivered to receivers registered at runtime.
+        val screenFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_USER_PRESENT)
+        }
+        ContextCompat.registerReceiver(context, screenReceiver, screenFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        screenLocked = !(context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
+        applyRefreshMode()
+        if (com.soniccontrol.core.background.AppShutdown.suppressed.value) refresher.shutdown()
+        refresher.start()
+        scope.launch {
+            db.settings.map { it.refreshActiveSeconds to it.refreshBackgroundSeconds }.distinctUntilChanged().collect { (a, b) ->
+                refresher.setSettings(com.soniccontrol.core.devices.AdaptiveRefreshCoordinator.Settings(a, b))
+            }
+        }
         scope.launch { salt = db.anonymizationSalt() }
         scope.launch {
             availability.collect { a ->
@@ -205,6 +257,7 @@ class SonicController(
     /** On start: reconnect to the last device if Android has it connected for audio right now. */
     /** Sleep timer ended: close the session and Bluetooth helpers WITHOUT forgetting the last device. Reversed only by [refreshAvailability] after a manual open. */
     fun shutdown() {
+        refresher.shutdown()   // full stop of monitoring: no refresh of any kind until the app is opened by hand
         sessions.disconnect()
         scanner?.stopScan()
         audioMonitor?.stop(); audioMonitor = null
@@ -248,6 +301,7 @@ class SonicController(
 
     override fun refreshAvailability() {
         monitor.refresh()
+        if (!com.soniccontrol.core.background.AppShutdown.suppressed.value) refresher.resume()
         if (active.value != null) sessions.wake("app opened")
         if (ready()) { ensureAudioMonitor(); if (active.value == null) scope.launch { delay(800); autoConnect() } }
         if (ready()) { scanner?.loadBonded(); scanner?.loadAudioConnected() }
@@ -362,6 +416,14 @@ class SonicController(
                 "openTransports" to androidLink()?.openTransports,
                 "deviceSession" to sessions.currentSessionGen,
             ),
+            "refresh" to refresher.status.value.let { r ->
+                val st = (sessions.currentSession() as? com.soniccontrol.core.devices.BaseDriverSession)?.refreshStats
+                mapOf(
+                    "mode" to r.mode.name, "intervalSeconds" to r.intervalMillis?.let { it / 1000 }, "attached" to r.attached, "stoppedBySleepTimer" to r.shutdown,
+                    "loopRunning" to refresher.running, "ticks" to r.ticks, "lastReason" to r.lastReason, "lastTickAgeSeconds" to r.lastTickMillis?.let { (clock() - it) / 1000 },
+                    "session" to st?.let { x -> mapOf("refreshes" to x.refreshes, "skippedBusy" to x.skippedBusy, "gattReads" to x.gattReads, "gattReadsSkippedAfterNotification" to x.gattReadsSkipped, "vendorReads" to x.vendorReads, "fastPairStreamOpens" to x.streamOpens) },
+                )
+            },
             "telemetry" to a?.let { d -> mapOf("status" to d.telemetryStatus(clock()).name, "control" to d.controlStatus.name, "audio" to d.links.audio.name) },
             "connectionAttempts" to attemptsOut, "bleObservations" to observations, "endpointCandidates" to resolver,
             "manualEndpointSelected" to (manualEndpoint.value != null),

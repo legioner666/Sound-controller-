@@ -23,8 +23,11 @@ class DriverEnvironment(
     val fastPairListening: StateFlow<Boolean>,
     val sink: DiagnosticSink,
     val clock: () -> Long,
-    /** Long-interval safety-net polling (Fast Pair re-open, JBL mode GET). On in the app; tests with idle-waiting turn it on explicitly. */
-    val periodicRefresh: Boolean = false,
+    /**
+     * Where a session sends "refresh me now" (a Bluetooth notification hinted at a change). In the app this is
+     * [AdaptiveRefreshCoordinator.requestNow], so every refresh goes through the one loop; null = the session refreshes itself.
+     */
+    val refreshRequests: ((String) -> Unit)? = null,
     /** The single gate for automatic connection attempts (budget + circuit breaker), shared by all sessions of the process. */
     val coordinator: ConnectionCoordinator = ConnectionCoordinator(clock),
 )
@@ -81,6 +84,12 @@ interface DriverSession {
 
     /** Re-reads battery and modes. */
     suspend fun refresh(): CommandOutcome
+
+    /**
+     * One scheduled refresh, called only by [AdaptiveRefreshCoordinator]. Read-only; never overlaps with itself; cheap sources
+     * first. Default: nothing to do.
+     */
+    suspend fun refreshNow(reason: String) {}
     suspend fun setNoiseMode(mode: NoiseMode): CommandOutcome
 
     /** Explicit user action from the Lab: identify the protocol variant with read-only queries. */

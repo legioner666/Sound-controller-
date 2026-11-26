@@ -115,12 +115,13 @@ abstract class BaseDriverSession(
         link.expectFastPairStream(env.fastPairListening.value && StandardUuids.FAST_PAIR_MESSAGE_STREAM in link.sdpUuids())
         superviseGatt()
         if (!env.fastPairListening.value) {
+            initialStreamAttempted = true
             launchGattSources()
             return
         }
-        if (env.periodicRefresh) refreshFastPairPeriodically()
         launch {
             val stream = openFastPairStream()
+            initialStreamAttempted = true
             if (stream != null) launch { consumeStream(stream) }
             launchGattSources()
             if (stream == null) {
@@ -225,10 +226,10 @@ abstract class BaseDriverSession(
         onGattRestored()
     }
 
-    private val refreshTriggers = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED)
-
-    /** Event-driven refresh: something happened that probably changed the earbuds (case, audio, vendor notification). Debounced and bounded. */
-    protected fun requestRefresh(reason: String) { refreshTriggers.trySend(reason) }
+    /** A notification hinted at a change: ask the single refresh loop for an immediate refresh (or refresh here without one). */
+    protected fun requestRefresh(reason: String) {
+        env.refreshRequests?.invoke(reason) ?: launch { refreshNow(reason) }
+    }
 
     /** Marks every battery component as "last known": its source is gone or silent, so it must not look current. */
     protected fun markBatteryStale() = update { s ->
@@ -237,47 +238,66 @@ abstract class BaseDriverSession(
         s.copy(battery = b.copy(left = b.left.stale(), right = b.right.stale(), case = b.case.stale(), single = b.single.stale()))
     }
 
-    private fun refreshSignature(): String = state.value.let { s ->
-        val b = s.battery
-        listOf(b?.left, b?.right, b?.case, b?.single).joinToString("|") { "${it?.charging}" } + "|${s.active}"   // percent drifts slowly: only charging/active reset the interval
-    }
+    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var lastBasMillis: Long? = null
+    @Volatile private var lastFastPairDataMillis: Long? = null
+    @Volatile private var failedRefreshOpens = 0
+    @Volatile private var initialStreamAttempted = false
+
+    /** Counters for tests and diagnostics: how each refresh was served. */
+    data class RefreshStats(val refreshes: Int = 0, val skippedBusy: Int = 0, val gattReads: Int = 0, val gattReadsSkipped: Int = 0, val vendorReads: Int = 0, val streamOpens: Int = 0)
+    @Volatile var refreshStats = RefreshStats()
+        private set
 
     /**
-     * Fast Pair streams close on their own (the Tune Beam 2 closes ~5 s after opening), so state is re-read by re-opening the
-     * read-only stream: immediately after an event ([requestRefresh]), and otherwise on an adaptive schedule that starts at
-     * [REFRESH_MIN_MILLIS], doubles while nothing changes and is capped at [REFRESH_MAX_MILLIS]; a change resets it.
-     * Never faster than [REFRESH_MIN_GAP_MILLIS], never while a stream is open, so at most one socket exists.
+     * One scheduled refresh (owner decision, TASK 011). Sources in priority order:
+     * 1. Bluetooth notifications — already pushed into the state; a fresh one makes the read below redundant.
+     * 2. A read over the GATT link that is already open (Battery Service, the driver's vendor GET). No socket is created,
+     *    so the RFCOMM budget does not apply.
+     * 3. A Fast Pair stream that is already open delivers by itself: nothing to do.
+     * 4. Re-opening the read-only Fast Pair RFCOMM stream — only when its data is older than [FAST_PAIR_REOPEN_MIN_AGE_MILLIS]
+     *    and within [ConnectionCoordinator]'s socket budget.
+     * Never runs twice at once: a refresh that finds another one running is skipped, not queued.
      */
-    private fun refreshFastPairPeriodically() {
-        launch {
-            var interval = REFRESH_MIN_MILLIS
-            var silent = 0
-            while (true) {
-                val reason = kotlinx.coroutines.withTimeoutOrNull(interval) { refreshTriggers.receive() } ?: "scheduled"
-                // Every branch below (disabled, stream still open, failed open, success) ends in the same minimum gap,
-                // so a flood of triggers or repeated failures can never cause rapid socket opens.
-                interval = refreshOnce(reason, interval) { silent++ >= 1 }.also { if (it == REFRESH_MIN_MILLIS) silent = 0 }
-                kotlinx.coroutines.delay(REFRESH_MIN_GAP_MILLIS)
+    override suspend fun refreshNow(reason: String) {
+        if (!refreshMutex.tryLock()) { refreshStats = refreshStats.copy(skippedBusy = refreshStats.skippedBusy + 1); return }
+        try {
+            refreshStats = refreshStats.copy(refreshes = refreshStats.refreshes + 1)
+            val now = env.clock()
+            if (link.gattState.value == ChannelState.CONFIRMED) {
+                if (lastBasMillis?.let { now - it < NOTIFICATION_DEDUP_MILLIS } == true) {
+                    refreshStats = refreshStats.copy(gattReadsSkipped = refreshStats.gattReadsSkipped + 1)
+                } else if (StandardUuids.BATTERY_SERVICE in link.gattServices()) {
+                    refreshStats = refreshStats.copy(gattReads = refreshStats.gattReads + 1)
+                    rereadBasOnce()
+                }
+                if (vendorRefresh(reason)) refreshStats = refreshStats.copy(vendorReads = refreshStats.vendorReads + 1)
             }
+            refreshFastPairIfNeeded(now, reason)
+        } finally {
+            refreshMutex.unlock()
         }
     }
 
-    /** One refresh attempt; returns the next idle interval. [shouldMarkStale] is asked after a failed open. */
-    private suspend fun refreshOnce(reason: String, interval: Long, shouldMarkStale: () -> Boolean): Long {
-        if (!env.fastPairListening.value) return interval
-        if (currentStream?.state?.value == TransportState.Open) return interval   // a stream is open: never stack another
-        if (reason != "scheduled" && lastRefreshOpenMillis?.let { env.clock() - it < EVENT_REFRESH_MIN_MILLIS } == true) return interval
-        val before = refreshSignature()
-        lastRefreshOpenMillis = env.clock()
+    /** Driver hook for a cheap read-only query over its already open control channel; returns true if one was sent. */
+    protected open suspend fun vendorRefresh(reason: String): Boolean = false
+
+    private suspend fun refreshFastPairIfNeeded(now: Long, reason: String) {
+        if (!env.fastPairListening.value || !initialStreamAttempted) return   // the session's own first open comes first
+        if (link.sdpUuids().isNotEmpty() && StandardUuids.FAST_PAIR_MESSAGE_STREAM !in link.sdpUuids()) return
+        if (currentStream?.state?.value == TransportState.Open) return                          // data flows by itself
+        val dataAge = lastFastPairDataMillis?.let { now - it } ?: Long.MAX_VALUE
+        val openAge = lastRefreshOpenMillis?.let { now - it } ?: Long.MAX_VALUE
+        if (dataAge < FAST_PAIR_REOPEN_MIN_AGE_MILLIS || openAge < FAST_PAIR_REOPEN_MIN_AGE_MILLIS) return
         val stream = openFastPairStream()
         if (stream == null) {
-            if (shouldMarkStale()) markBatteryStale()
-            return (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
+            if (++failedRefreshOpens >= 2) markBatteryStale()
+            return
         }
+        failedRefreshOpens = 0
+        refreshStats = refreshStats.copy(streamOpens = refreshStats.streamOpens + 1)
         log(EventCategory.RFCOMM, "Fast Pair refresh ($reason)")
         launch { consumeStream(stream) }
-        stream.state.first { it != TransportState.Open }
-        return if (refreshSignature() != before) REFRESH_MIN_MILLIS else (interval * 2).coerceAtMost(REFRESH_MAX_MILLIS)
     }
 
     /** Standard Device Information Service: firmware revision (read-only). Used for identification only. */
@@ -302,6 +322,7 @@ abstract class BaseDriverSession(
         if (value.isEmpty()) return
         val pct = value[0].toInt() and 0xFF
         if (pct > 100) return
+        lastBasMillis = env.clock()
         log(EventCategory.RX, "BLE Battery Service: $pct%", value)
         acceptBattery(BatteryStatus(single = BatteryLevel(pct), source = DataSource.BLE_BATTERY_SERVICE, timestampMillis = env.clock()))
     }
@@ -326,6 +347,7 @@ abstract class BaseDriverSession(
             is ConnectionCoordinator.Decision.Denied -> { logDenied("RFCOMM", d.reason); return null }
             ConnectionCoordinator.Decision.Allowed -> lastDenied = null
         }
+        lastRefreshOpenMillis = env.clock()   // every attempt, at start or on refresh, paces the next one
         val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = writable)
         if (raw == null) { env.coordinator.reportFailure(ConnectionCoordinator.Kind.RFCOMM); return null }
         env.coordinator.reportSuccess(ConnectionCoordinator.Kind.RFCOMM)
@@ -350,10 +372,10 @@ abstract class BaseDriverSession(
         const val PSM_READS = 3
         const val GATT_WAIT_MILLIS = 30_000L
         const val RECOVERY_PAUSE_MIN_MILLIS = 60_000L
-        const val EVENT_REFRESH_MIN_MILLIS = 60_000L
-        const val REFRESH_MIN_MILLIS = 30_000L
-        const val REFRESH_MAX_MILLIS = 5 * 60_000L
-        const val REFRESH_MIN_GAP_MILLIS = 5_000L
+        /** A notification this recent already answered what a timed read would ask. */
+        const val NOTIFICATION_DEDUP_MILLIS = 3_000L
+        /** Fast Pair data younger than this is not refreshed with a new socket: at most ~30 opens/h, inside the 40/h socket budget with room for events. */
+        const val FAST_PAIR_REOPEN_MIN_AGE_MILLIS = 120_000L
     }
 
     /**
@@ -416,6 +438,7 @@ abstract class BaseDriverSession(
 
     private suspend fun readFrames(t: BluetoothTransport, answered: kotlinx.coroutines.CompletableDeferred<Boolean>) {
         t.incoming.collect { frame ->
+            lastFastPairDataMillis = env.clock()
             val e = fastPairSession.onFrame(frame)
             if (e == null) { log(EventCategory.ERROR, "Fast Pair: invalid frame ignored", frame); return@collect }
             if (e is FastPairEvent.Unknown) {

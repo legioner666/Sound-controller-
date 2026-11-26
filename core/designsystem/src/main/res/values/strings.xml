@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_refresh">Headphone refresh</string>
+    <string name="settings_refresh_body">How often battery and status are re-read. Bluetooth notifications always update at once; nothing is polled while headphones are disconnected or after the sleep timer.</string>
+    <string name="settings_refresh_active">App open (main screen; other sections ×2)</string>
+    <string name="settings_refresh_background">In background and with the screen locked</string>
+    <string name="seconds_short">%1$d s</string>
+    <string name="updated_ago_seconds">updated %1$d s ago</string>
+    <string name="updated_ago_minutes">updated %1$d min ago</string>
+    <string name="updated_ago_hours">updated %1$d h ago</string>
     <string name="telemetry_live">Data live</string>
     <string name="telemetry_stale">Data outdated</string>
     <string name="telemetry_none">No data</string>

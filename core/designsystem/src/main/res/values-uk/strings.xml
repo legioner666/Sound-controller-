@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_refresh">Оновлення даних навушників</string>
+    <string name="settings_refresh_body">Як часто перечитуються заряд і стан. Сповіщення Bluetooth оновлюють дані одразу; коли навушники відключені або спрацював таймер сну, опитування не відбувається.</string>
+    <string name="settings_refresh_active">Застосунок відкрито (головний екран; інші розділи ×2)</string>
+    <string name="settings_refresh_background">У фоні та при заблокованому екрані</string>
+    <string name="seconds_short">%1$d с</string>
+    <string name="updated_ago_seconds">оновлено %1$d с тому</string>
+    <string name="updated_ago_minutes">оновлено %1$d хв тому</string>
+    <string name="updated_ago_hours">оновлено %1$d год тому</string>
     <string name="telemetry_live">Дані оновлюються</string>
     <string name="telemetry_stale">Дані застарілі</string>
     <string name="telemetry_none">Даних немає</string>

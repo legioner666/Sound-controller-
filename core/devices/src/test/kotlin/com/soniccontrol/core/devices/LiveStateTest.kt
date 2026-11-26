@@ -27,13 +27,19 @@ class LiveStateTest {
     private val bas = StandardUuids.BATTERY_SERVICE
     private val rf = StandardUuids.FAST_PAIR_MESSAGE_STREAM
 
-    private fun TestScope.session(link: FakeLink, fastPair: Boolean = false, coordinator: ConnectionCoordinator? = null): BaseDriverSession {
+    private fun TestScope.session(link: FakeLink, fastPair: Boolean = false, coordinator: ConnectionCoordinator? = null, refresher: AdaptiveRefreshCoordinator? = null): BaseDriverSession {
         val clock = { testScheduler.currentTime }
-        val env = DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, clock, periodicRefresh = true, coordinator = coordinator ?: ConnectionCoordinator(clock))
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, clock, refreshRequests = refresher?.let { r -> r::requestNow }, coordinator = coordinator ?: ConnectionCoordinator(clock))
         return object : BaseDriverSession(link, DeviceIdentity(link.address, "Fake"), env, "t", HeadphoneState("Fake")) {
             override suspend fun start() = startUniversalSources()
         }
     }
+
+    /** The app's wiring: one AdaptiveRefreshCoordinator drives [s]'s refreshes. */
+    private fun TestScope.drive(s: DriverSession, refresher: AdaptiveRefreshCoordinator, mode: AdaptiveRefreshCoordinator.Mode = AdaptiveRefreshCoordinator.Mode.MAIN_SCREEN) {
+        refresher.setMode(mode); refresher.start(); refresher.attach { s.refreshNow(it) }
+    }
+    private fun TestScope.refresher() = AdaptiveRefreshCoordinator(backgroundScope) { testScheduler.currentTime }
 
     private fun basLink(vararg extra: Pair<java.util.UUID, ByteArray>) = FakeLink(
         services = setOf(bas), characteristics = mapOf(StandardUuids.BATTERY_LEVEL to hex("50")) + extra,
@@ -103,13 +109,16 @@ class LiveStateTest {
         assertEquals(1, link.reconnectCalls)
     }
 
-    @Test fun periodicFastPairRefreshWaitsForTheLongIntervalAndNeverStacksStreams() = runTest {
+    @Test fun scheduledRefreshNeverStacksAStreamOnAnOpenOne() = runTest {
         val t1 = FakeTransport()
         val link = FakeLink(sdp = setOf(rf), rfcomm = mapOf(rf to t1))
-        val s = session(link, fastPair = true); s.start(); runCurrent()
+        val r = refresher()
+        val s = session(link, fastPair = true, refresher = r); s.start(); runCurrent()
+        drive(s, r)
         assertEquals(1, link.opened.count { it == rf })
         advanceTimeBy(20 * 60_000); runCurrent()
         assertEquals(1, link.opened.count { it == rf })   // the first stream is still open: no second one is stacked on it
+        assertTrue(s.refreshStats.refreshes > 200)
     }
 
     @Test fun batteryIsMarkedLastKnownWhenItsSourceIsLost() = runTest {
@@ -131,12 +140,62 @@ class LiveStateTest {
         assertEquals(ControlStatus.CONNECTED, base.copy(links = base.links.copy(gatt = ChannelState.CONFIRMED, control = ChannelState.CONFIRMED)).controlStatus)
     }
 
-    @Test fun fastPairRefreshIsAdaptiveBoundedAndSingleSocket() = runTest {
-        val link = FakeLink(sdp = setOf(rf), rfcomm = mapOf(rf to FakeTransport()), services = setOf(bas), characteristics = mapOf(StandardUuids.BATTERY_LEVEL to hex("50")))
-        val s = session(link, fastPair = true); s.start(); runCurrent()
+    /**
+     * Owner decision (TASK 011): polling frequency and the socket budget are separate. At 5 s on the main screen for an hour,
+     * every refresh reads over the open GATT link (no socket), while new RFCOMM sockets stay at most ~30/h (< 40/h budget).
+     */
+    @Test fun gattReadsAreNotLimitedByTheSocketBudget() = runTest {
+        val link = FakeLink(sdp = setOf(rf), services = setOf(bas), characteristics = mapOf(StandardUuids.BATTERY_LEVEL to hex("50")))
+        link.rfcommFactory = { FakeTransport().also { t -> backgroundScope.launchLater(testScheduler, 5_000) { t.close() } } }
+        val r = refresher()
+        val s = session(link, fastPair = true, refresher = r); s.start(); runCurrent()
+        drive(s, r)
+        val readsBefore = link.reads
         advanceTimeBy(60 * 60_000); runCurrent()
-        // unchanged data backs off 30 s -> 5 min: far fewer than one open per 30 s, and never endless
-        assertTrue("opens=${link.opened.size}", link.opened.size in 1..20)
+        val st = s.refreshStats
+        assertTrue("GATT reads ${st.gattReads} at the 5 s rhythm", st.gattReads >= 700)
+        assertTrue("BAS really read: ${link.reads - readsBefore}", link.reads - readsBefore >= 700)
+        val rfOpens = link.opened.count { it == rf }
+        assertTrue("RFCOMM opens $rfOpens stay inside 40/h", rfOpens in 20..40)
+        assertEquals("one refresh at a time", 0, st.skippedBusy)
+    }
+
+    @Test fun aFreshNotificationMakesTheTimedReadRedundant() = runTest {
+        val flow = MutableSharedFlow<ByteArray>(extraBufferCapacity = 8)
+        val link = basLink(); link.notifyFlows[StandardUuids.BATTERY_LEVEL] = flow
+        val r = refresher()
+        val s = session(link, refresher = r); s.start(); runCurrent()
+        drive(s, r, AdaptiveRefreshCoordinator.Mode.BACKGROUND)
+        advanceTimeBy(59_000); runCurrent()
+        flow.emit(hex("4B")); runCurrent()                // notification 1 s before the timed refresh
+        val before = s.refreshStats
+        advanceTimeBy(1_000); runCurrent()
+        assertEquals(before.gattReadsSkipped + 1, s.refreshStats.gattReadsSkipped)
+        assertEquals(before.gattReads, s.refreshStats.gattReads)
+        assertEquals(75, s.state.value.battery?.single?.percent)
+    }
+
+    @Test fun aDriverNotificationRoutesThroughTheSingleLoop() = runTest {
+        val link = basLink()
+        val r = refresher()
+        val s = Poked(link, DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(false), DiagnosticSink { }, { testScheduler.currentTime }, refreshRequests = r::requestNow))
+        s.start(); runCurrent()
+        drive(s, r, AdaptiveRefreshCoordinator.Mode.BACKGROUND); runCurrent()
+        val ticks = r.status.value.ticks
+        s.poke(); runCurrent()
+        assertEquals(ticks + 1, r.status.value.ticks)
+        assertEquals("test", r.status.value.lastReason)
+    }
+
+    @Test fun noPollingWithoutAnAttachedSession() = runTest {
+        val link = basLink()
+        val r = refresher()
+        val s = session(link, refresher = r); s.start(); runCurrent()
+        drive(s, r); runCurrent()
+        r.detach()
+        val reads = link.reads
+        advanceTimeBy(30 * 60_000); runCurrent()
+        assertEquals("headset disconnected: no reads at all", reads, link.reads)
     }
 
     private class Poked(link: DeviceLink, env: DriverEnvironment) : BaseDriverSession(link, DeviceIdentity(link.address, "Fake"), env, "t", HeadphoneState("Fake")) {
@@ -144,7 +203,11 @@ class LiveStateTest {
         fun poke() = requestRefresh("test")
     }
 
-    private fun TestScope.poked(link: FakeLink) = Poked(link, DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(true), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true))
+    private fun TestScope.poked(link: FakeLink): Poked {
+        val r = refresher()
+        return Poked(link, DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(true), DiagnosticSink { }, { testScheduler.currentTime }, refreshRequests = r::requestNow))
+            .also { drive(it, r) }
+    }
 
     /** A real re-open: the headset closes each stream after ~5 s (as the Tune Beam 2 does) and every refresh opens a NEW transport. */
     @Test fun closedStreamIsReopenedWithBoundedSpacing() = runTest {
@@ -156,9 +219,9 @@ class LiveStateTest {
         }
         val s = poked(link); s.start(); runCurrent()
         advanceTimeBy(20 * 60_000); runCurrent()
-        assertTrue("stream was re-opened: $openTimes", openTimes.size >= 4)
-        assertTrue("never faster than the minimum gap: $openTimes", openTimes.zipWithNext().all { (a, b) -> b - a >= 5_000 })
-        assertTrue("backs off while nothing changes: $openTimes", openTimes.size <= 12)
+        assertTrue("stream was re-opened: $openTimes", openTimes.size >= 8)
+        assertTrue("new sockets only when the stream data is old: $openTimes", openTimes.zipWithNext().all { (a, b) -> b - a >= 120_000 })
+        assertTrue("paced although refreshes run every 5 s: $openTimes", openTimes.size <= 11)
     }
 
     @Test fun triggerFloodAndFailedOpensNeverCauseRapidOpens() = runTest {
@@ -168,8 +231,8 @@ class LiveStateTest {
         val s = poked(link); s.start(); runCurrent()
         repeat(100) { s.poke(); advanceTimeBy(100) }
         advanceTimeBy(10 * 60_000); runCurrent()
-        assertTrue("opens: $openTimes", openTimes.filter { it > 0 }.zipWithNext().all { (a, b) -> b - a >= 5_000 })
-        assertTrue("bounded: ${openTimes.size}", openTimes.size < 150)
+        assertTrue("opens: $openTimes", openTimes.filter { it > 0 }.zipWithNext().all { (a, b) -> b - a >= 120_000 })
+        assertTrue("bounded: ${openTimes.size}", openTimes.size <= 6)
         assertTrue("after failures the values are labelled last-known", s.state.value.battery?.single?.lastKnown == true)
     }
 }

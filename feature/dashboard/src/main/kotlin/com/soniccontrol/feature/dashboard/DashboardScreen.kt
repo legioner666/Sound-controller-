@@ -83,8 +83,7 @@ fun DashboardScreen(
     val attempts by lab.attempts.collectAsStateWithLifecycle()
     val volume by audio.volume.collectAsStateWithLifecycle()
     LaunchedEffect(active?.identity?.address) { audio.refreshVolume() }
-    // Returning to the app re-checks freshness with confirmed reads only (TASK 007); the state itself is a live flow.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { if (active != null) controller.refresh() }
+    // Returning to the app refreshes at once through the single AdaptiveRefreshCoordinator (TASK 011): no second request here.
     val links = active?.links
     LaunchedEffect(links?.gatt, links?.rfcomm, links?.control, active?.connection) { lab.refreshAttempts() }
 
@@ -193,11 +192,18 @@ private fun connectionBrief(d: ActiveDevice): String = when (d.links.audio) {
 }
 
 @Composable
-private fun telemetryLabel(d: ActiveDevice, now: Long): String = stringResource(when (d.telemetryStatus(now)) {
-    com.soniccontrol.core.devices.TelemetryStatus.LIVE -> R.string.telemetry_live
-    com.soniccontrol.core.devices.TelemetryStatus.STALE -> R.string.telemetry_stale
-    com.soniccontrol.core.devices.TelemetryStatus.NONE -> R.string.telemetry_none
-})
+private fun telemetryLabel(d: ActiveDevice, now: Long): String {
+    val status = d.telemetryStatus(now)
+    val label = stringResource(when (status) {
+        com.soniccontrol.core.devices.TelemetryStatus.LIVE -> R.string.telemetry_live
+        com.soniccontrol.core.devices.TelemetryStatus.STALE -> R.string.telemetry_stale
+        com.soniccontrol.core.devices.TelemetryStatus.NONE -> R.string.telemetry_none
+    })
+    // No fresh data: the last known values stay on screen together with their age (owner decision, TASK 011).
+    val t = d.lastTelemetryMillis ?: return label
+    if (status == com.soniccontrol.core.devices.TelemetryStatus.LIVE && now - t < com.soniccontrol.core.designsystem.SHOW_AGE_AFTER_MILLIS) return label
+    return label + " · " + (com.soniccontrol.core.designsystem.updatedAgo(t, now) ?: return label)
+}
 
 /** One status for control, derived from real channel state (never from "session active"); same source as the background notification. */
 @Composable

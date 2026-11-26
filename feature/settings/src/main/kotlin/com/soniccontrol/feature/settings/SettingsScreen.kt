@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.soniccontrol.core.database.AppSettings
 import com.soniccontrol.core.database.SonicDatabase
 import com.soniccontrol.core.database.ThemeMode
 import com.soniccontrol.core.designsystem.R
@@ -82,6 +83,19 @@ fun SettingsScreen(db: SonicDatabase, appVersion: String) {
                 }
                 ToggleRow(stringResource(R.string.settings_experimental), stringResource(R.string.settings_experimental_body), settings.experimental) {
                     if (it) confirmExperimental = true else scope.launch { db.setExperimental(false) }
+                }
+            }
+        }
+        item {
+            SonicCard(title = stringResource(R.string.settings_refresh)) {
+                Text(stringResource(R.string.settings_refresh_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.settings_refresh_active), style = MaterialTheme.typography.titleSmall)
+                SegmentedTabs(AppSettings.REFRESH_ACTIVE_CHOICES, settings.refreshActiveSeconds, { stringResource(R.string.seconds_short, it) }) {
+                    scope.launch { db.setRefreshActiveSeconds(it) }
+                }
+                Text(stringResource(R.string.settings_refresh_background), style = MaterialTheme.typography.titleSmall)
+                SegmentedTabs(AppSettings.REFRESH_BACKGROUND_CHOICES, settings.refreshBackgroundSeconds, { stringResource(R.string.seconds_short, it) }) {
+                    scope.launch { db.setRefreshBackgroundSeconds(it) }
                 }
             }
         }
