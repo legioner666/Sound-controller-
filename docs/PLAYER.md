@@ -17,9 +17,11 @@ only when the device reports it.
 * **Playback** (`mediaPlayback`): audio focus (calls, other apps), auto-pause when headphones disconnect
   (`setHandleAudioBecomingNoisy`), lock-screen / notification / media-button control via the media session. The queue is
   restored **paused**; no boot receiver and no playback-resumption callback exist, so nothing plays after a reboot.
-* **Device monitoring** (`connectedDevice`): only runs while the setting is on and a headset is active; shows L/R/Case,
-  charging, "last known" and reconnect state; "Stop monitoring" in the notification switches the setting off. It is not
-  sticky and never bypasses Android's start restrictions: if Android refuses, it is retried when the app is opened.
+* **Battery notification** (`connectedDevice`, optional, **off by default** since TASK 012): runs only while the
+  "Headphone battery notification" setting is on and a headset is active; shows L/R/Case, charging, "last known" and
+  reconnect state; "Turn off" in the notification switches the setting off. With the setting off the same data is on the
+  main screen only. It is not sticky and never bypasses Android's start restrictions: if Android refuses, it is retried
+  when the app is opened. See docs/TASK012_REPORT.md.
 
 ## Privacy
 No INTERNET permission, no account, no metadata leaves the phone. Only `READ_MEDIA_AUDIO` (or `READ_EXTERNAL_STORAGE` up to

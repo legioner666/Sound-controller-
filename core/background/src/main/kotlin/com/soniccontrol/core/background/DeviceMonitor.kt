@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.Flow
 interface DeviceMonitorSource {
     /** Null while no headset is active. */
     val summary: Flow<MonitorSummary?>
-    /** The user pressed "Stop" in the notification: switch the setting off. */
+    /** Current answer of [BatteryNotificationPolicy] (setting on, headset active, not switched off by the sleep timer). */
+    val notificationAllowed: Boolean
+    /** The user pressed "Turn off" in the notification: switch the setting off. */
     fun onStopRequested()
 }
 

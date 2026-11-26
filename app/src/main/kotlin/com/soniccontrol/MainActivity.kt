@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         (application as SonicApp).container.controller.setForeground(true)
+        (application as SonicApp).container.backgroundMonitoring.onAppForeground()
     }
 
     override fun onStop() {

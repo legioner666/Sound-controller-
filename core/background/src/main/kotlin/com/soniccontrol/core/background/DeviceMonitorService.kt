@@ -21,10 +21,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service of type connectedDevice. It adds no Bluetooth work of its own: it keeps the process (and so the
- * device sessions, recovery and notifications that already run there) alive and shows the current battery state.
- * Started only by the app while the user's "background monitoring" setting is on; stoppable from its notification.
- * It never touches audio and is independent of the playback service.
+ * Optional battery notification (TASK 012): a foreground service of type connectedDevice whose notification shows the
+ * headset's battery. OFF by default; runs only while the user's "Battery notification" setting is on and a headset is
+ * active (see [BatteryNotificationPolicy]). It adds no Bluetooth work of its own, never touches audio and is independent
+ * of the playback service and the sleep timer.
+ *
+ * Android requires a visible notification for every foreground service. That rule is respected: when the notification is
+ * not wanted the service simply does not run.
  */
 class DeviceMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -38,25 +41,26 @@ class DeviceMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (AppShutdown.isSuppressed(this)) { stopSelf(); return START_NOT_STICKY }   // sleep timer ended: no restart until the app is opened
         if (intent?.action == ACTION_STOP) {
             DeviceMonitor.source?.onStopRequested()
-            stopSelf()
-            return START_NOT_STICKY
+            return abort()
         }
-        val first = build(null)
+        // Sleep timer ended, setting switched off meanwhile, or no source: never show the notification.
+        val src = DeviceMonitor.source
+        if (AppShutdown.isSuppressed(this) || src == null || !src.notificationAllowed) return abort()
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, first, if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, build(null), if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
+            running = true
         } catch (_: Exception) {
             // Not allowed to run in the foreground right now (permission or background-start limits). Never bypassed.
             stopSelf(); return START_NOT_STICKY
         }
         job?.cancel()
         job = scope.launch {
-            val src = DeviceMonitor.source
-            if (src == null) { stopSelf(); return@launch }
             src.summary.distinctUntilChanged().collect { s ->
-                if (s == null) stopSelf() else getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, build(s))
+                // Re-checked on every update: a switched-off setting never gets its notification re-posted.
+                if (s == null || !src.notificationAllowed || AppShutdown.suppressed.value) stopNow()
+                else getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, build(s))
             }
         }
         // Not sticky: after the system kills the process nothing restarts by itself; the app starts it again when opened.
@@ -64,15 +68,38 @@ class DeviceMonitorService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         scope.cancel()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
 
-    private fun ensureChannel() {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.monitor_channel), NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
+    /**
+     * A service started with startForegroundService must enter the foreground before it stops, or Android ends the app.
+     * So it enters with a silent notification and leaves at once, removing it; if even that is refused it just stops.
+     */
+    private fun abort(): Int {
+        runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, build(null), if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
         }
+        stopNow()
+        return START_NOT_STICKY
+    }
+
+    private fun stopNow() {
+        job?.cancel()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        running = false
+        stopSelf()
+    }
+
+    private fun ensureChannel() {
+        // Always (re)created: this updates the visible channel name after an app update, settings stay the user's.
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL, getString(R.string.monitor_channel), NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) },
+        )
     }
 
     private fun build(s: MonitorSummary?): Notification {
@@ -98,6 +125,10 @@ class DeviceMonitorService : Service() {
         private const val CHANNEL = "device_monitor"
         private const val NOTIFICATION_ID = 4001
         private const val ACTION_STOP = "com.soniccontrol.background.STOP"
+
+        /** True while the service is in the foreground with its notification. */
+        @Volatile var running: Boolean = false
+            private set
 
         fun start(context: Context): Boolean = runCatching {
             androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, DeviceMonitorService::class.java)); true

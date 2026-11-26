@@ -4,7 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.soniccontrol.core.background.AppShutdown
+import com.soniccontrol.core.background.BatteryNotificationPolicy
 import com.soniccontrol.core.background.DeviceMonitor
 import com.soniccontrol.core.background.DeviceMonitorService
 import com.soniccontrol.core.background.DeviceMonitorSource
@@ -16,17 +19,18 @@ import com.soniccontrol.core.devices.currentCharging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import com.soniccontrol.core.devices.currentCharging
 
 /**
- * Decides when the foreground "device monitoring" service runs: only while the user's setting is on AND a headset is active.
- * It is independent of the music player. If Android refuses to start it (permission, background-start limits) nothing is bypassed;
- * it is simply retried the next time the app is opened.
+ * Decides when the optional battery notification (foreground service of type connectedDevice) runs: only while the user's
+ * "Battery notification" setting is on (default OFF, TASK 012), a headset is active and the sleep timer has not switched the
+ * app off. Setting changes apply at once. With the setting off a reconnecting headset never brings the notification back.
+ * If Android refuses the service or notifications are not allowed nothing is bypassed; it is retried when the app is opened.
+ * Independent of the music player and of the adaptive refresh (which keep working with the notification off).
  */
 class BackgroundMonitoring(
     private val context: Context,
@@ -37,6 +41,15 @@ class BackgroundMonitoring(
 ) : DeviceMonitorSource {
 
     override val summary: Flow<MonitorSummary?> = combine(controller.active, minuteTicker()) { a, now -> a?.let { toSummary(it, now) } }
+
+    override val notificationAllowed: Boolean
+        get() = BatteryNotificationPolicy.shouldRun(
+            enabled = db.settings.value.batteryNotification, hasDevice = controller.active.value != null,
+            suppressed = AppShutdown.suppressed.value, permitted = permitted(),
+        )
+
+    /** Bumped when the app comes to the foreground, so a refused start or a revoked permission is re-evaluated. */
+    private val recheck = MutableStateFlow(0)
 
     private fun minuteTicker(): Flow<Long> = flow { while (true) { emit(clock()); delay(60_000) } }
 
@@ -54,17 +67,29 @@ class BackgroundMonitoring(
         )
     }
 
-    override fun onStopRequested() { scope.launch { db.setBackgroundMonitoring(false) } }
+    override fun onStopRequested() { scope.launch { db.setBatteryNotification(false) } }
 
-    private fun canStart(): Boolean =
-        Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+    /** Android's own limits: Bluetooth permission (12+) and notifications allowed for the app (13+ runtime permission). */
+    private fun permitted(): Boolean {
+        val bt = Build.VERSION.SDK_INT < 31 || ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        return bt && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    /** MainActivity onStart. */
+    fun onAppForeground() { recheck.value++ }
 
     fun start() {
         DeviceMonitor.source = this
         scope.launch {
-            combine(db.settings.map { it.backgroundMonitoring }.distinctUntilChanged(), controller.active.map { it != null }.distinctUntilChanged(), com.soniccontrol.core.background.AppShutdown.suppressed) { on, has, off -> on && has && !off }
-                .distinctUntilChanged()
-                .collect { want -> if (want && canStart()) DeviceMonitorService.start(context) else DeviceMonitorService.stop(context) }
+            val desired = BatteryNotificationPolicy.desired(
+                enabled = db.settings.map { it.batteryNotification },
+                hasDevice = controller.active.map { it != null },
+                suppressed = AppShutdown.suppressed,
+            )
+            combine(desired, recheck) { want, _ -> want }.collect { want ->
+                if (want && permitted()) { if (!DeviceMonitorService.running) DeviceMonitorService.start(context) }
+                else if (DeviceMonitorService.running) DeviceMonitorService.stop(context)
+            }
         }
     }
 

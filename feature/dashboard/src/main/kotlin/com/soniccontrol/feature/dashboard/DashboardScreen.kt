@@ -114,6 +114,9 @@ fun DashboardScreen(
                         device.headphone.active?.let { a ->
                             add(stringResource(when { a.left && a.right -> R.string.hero_active_both; a.left -> R.string.hero_active_left; a.right -> R.string.hero_active_right; else -> R.string.hero_active_none }) + if (activeStale) stringResource(R.string.hero_active_last_known) else "")
                         }
+                        // Everything the optional battery notification used to show is on this card (TASK 012): L/R/Case
+                        // gauges with charging, active earbuds, link/telemetry status with age, and the reconnect state.
+                        device.headphone.live.reconnect?.let { add(stringResource(R.string.hero_reconnecting, it)) }
                         device.headphone.firmware?.let { add(stringResource(R.string.hero_firmware, it)) }
                     },
                 )

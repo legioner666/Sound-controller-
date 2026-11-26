@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="monitor_channel">Headphone monitoring</string>
+    <string name="monitor_channel">Headphone battery</string>
     <string name="monitor_title">Sonic Control</string>
     <string name="monitor_waiting">Waiting for headphones…</string>
     <string name="monitor_left">L</string>
@@ -11,5 +11,5 @@
     <string name="monitor_stale">last known values</string>
     <string name="monitor_reconnecting">reconnecting</string>
     <string name="monitor_unknown">?</string>
-    <string name="monitor_stop">Stop monitoring</string>
+    <string name="monitor_stop">Turn off</string>
 </resources>

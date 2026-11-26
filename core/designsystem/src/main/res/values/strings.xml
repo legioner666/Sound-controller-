@@ -20,8 +20,10 @@
     <string name="source_vendor_native">JBL native notification (experimental)</string>
     <string name="app_name" translatable="false">Sonic Control</string>
     <string name="tab_music">Music</string>
-    <string name="settings_background">Background monitoring</string>
-    <string name="settings_background_body">Keeps a notification so battery, charging and noise-control state stay up to date while the app is closed. You can stop it from the notification.</string>
+    <string name="settings_battery_notification">Headphone battery notification</string>
+    <string name="settings_battery_notification_body">Shows an ongoing notification with the battery of the headphones and case. Off: battery, charging and earbud activity are shown only in the app. Android requires this notification while the app keeps headphone data up to date in the background.</string>
+    <string name="settings_battery_notification_denied">Notifications are off for Sonic Control, so the battery notification cannot be shown. Allow them in the system settings.</string>
+    <string name="action_open_notification_settings">Notification settings</string>
     <string name="music_tracks">Tracks</string>
     <string name="music_albums">Albums</string>
     <string name="music_artists">Artists</string>
@@ -381,5 +383,6 @@
     <string name="hero_active_right">Active: right earbud</string>
     <string name="hero_active_none">Active: none (both resting)</string>
     <string name="hero_firmware">Firmware %1$s</string>
+    <string name="hero_reconnecting">Reconnecting: %1$s</string>
     <string name="settings_licenses">Open-source notices</string>
 </resources>

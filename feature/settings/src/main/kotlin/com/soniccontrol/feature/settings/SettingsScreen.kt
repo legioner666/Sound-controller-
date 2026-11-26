@@ -46,8 +46,12 @@ fun SettingsScreen(db: SonicDatabase, appVersion: String) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var confirmExperimental by remember { mutableStateOf(false) }
-    // The notification permission only decides whether the monitoring notification is visible; monitoring still works without it.
-    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    // Battery notification (TASK 012, default off). Turning it on asks for the notification permission (Android 13+);
+    // if Android refuses, the setting goes back to off and the user is pointed to the system settings. Nothing is bypassed.
+    var notificationsBlocked by remember { mutableStateOf(false) }
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) { notificationsBlocked = true; scope.launch { db.setBatteryNotification(false) } }
+    }
 
     SonicScreen(title = stringResource(R.string.settings_title)) {
         item {
@@ -77,9 +81,24 @@ fun SettingsScreen(db: SonicDatabase, appVersion: String) {
                 ToggleRow(stringResource(R.string.settings_fast_pair), stringResource(R.string.settings_fast_pair_body), settings.fastPairListening) {
                     scope.launch { db.setFastPairListening(it) }
                 }
-                ToggleRow(stringResource(R.string.settings_background), stringResource(R.string.settings_background_body), settings.backgroundMonitoring) {
-                    if (it && android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                    scope.launch { db.setBackgroundMonitoring(it) }
+                ToggleRow(stringResource(R.string.settings_battery_notification), stringResource(R.string.settings_battery_notification_body), settings.batteryNotification) { on ->
+                    notificationsBlocked = false
+                    val allowed = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+                    // Applied at once: the background controller follows the stored setting.
+                    when {
+                        !on || allowed -> scope.launch { db.setBatteryNotification(on) }
+                        Build.VERSION.SDK_INT >= 33 -> {
+                            scope.launch { db.setBatteryNotification(true) }
+                            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        else -> notificationsBlocked = true
+                    }
+                }
+                if (notificationsBlocked) {
+                    Text(stringResource(R.string.settings_battery_notification_denied), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    }) { Text(stringResource(R.string.action_open_notification_settings)) }
                 }
                 ToggleRow(stringResource(R.string.settings_experimental), stringResource(R.string.settings_experimental_body), settings.experimental) {
                     if (it) confirmExperimental = true else scope.launch { db.setExperimental(false) }

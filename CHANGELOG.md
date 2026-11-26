@@ -1,5 +1,8 @@
 # Журнал змін
 
+## 0.8.x (TASK 012)
+- The ongoing battery notification is now optional and **off by default**. Battery, charging and earbud activity (plus reconnect state) are on the main screen. Setting "Headphone battery notification" (UA/EN/PL) applies at once, persists across restarts and APK updates (new key; the old default-on value is not carried over), and a reconnecting headset never re-creates the notification while it is off. Android's mandatory foreground-service notification is respected: off means the service does not run. Adaptive refresh, background playback and the sleep timer are unchanged. See docs/TASK012_REPORT.md.
+
 ## 0.8.x (TASK 011)
 - Adaptive refresh by app lifecycle: one AdaptiveRefreshCoordinator for the process (main screen 5 s, other sections 10 s, background and locked screen 60 s; immediate refresh on return to the foreground and on Bluetooth notifications; stops when the headset disconnects and after the sleep timer). Source priority: notifications, read over the open GATT link, the open Fast Pair stream, a new RFCOMM socket only when its data is old and within the 40/h budget. Settings 5/10/15/30 s and 30/60/120/300 s. Age of last-known values shown. See docs/TASK011_REPORT.md.
 

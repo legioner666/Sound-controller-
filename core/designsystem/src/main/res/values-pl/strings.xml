@@ -19,8 +19,10 @@
     <string name="hero_active_last_known"> (ostatnio znane)</string>
     <string name="source_vendor_native">natywne powiadomienie JBL (eksperymentalne)</string>
     <string name="tab_music">Muzyka</string>
-    <string name="settings_background">Monitorowanie w tle</string>
-    <string name="settings_background_body">Wyświetla powiadomienie, aby bateria, ładowanie i tryb redukcji szumów były aktualne, gdy aplikacja jest zamknięta. Można zatrzymać z powiadomienia.</string>
+    <string name="settings_battery_notification">Powiadomienie o baterii słuchawek</string>
+    <string name="settings_battery_notification_body">Pokazuje stałe powiadomienie z poziomem baterii słuchawek i etui. Wyłączone: bateria, ładowanie i aktywność słuchawek są widoczne tylko w aplikacji. Android wymaga tego powiadomienia, gdy aplikacja aktualizuje dane słuchawek w tle.</string>
+    <string name="settings_battery_notification_denied">Powiadomienia dla Sonic Control są wyłączone, więc powiadomienie o baterii nie może się pojawić. Zezwól na nie w ustawieniach systemu.</string>
+    <string name="action_open_notification_settings">Ustawienia powiadomień</string>
     <string name="music_tracks">Utwory</string>
     <string name="music_albums">Albumy</string>
     <string name="music_artists">Wykonawcy</string>
@@ -380,5 +382,6 @@
     <string name="hero_active_right">Aktywna: prawa słuchawka</string>
     <string name="hero_active_none">Aktywnych brak (obie w spoczynku)</string>
     <string name="hero_firmware">Oprogramowanie %1$s</string>
+    <string name="hero_reconnecting">Ponowne łączenie: %1$s</string>
     <string name="settings_licenses">Licencje open source</string>
 </resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="monitor_channel">Моніторинг навушників</string>
+    <string name="monitor_channel">Заряд навушників</string>
     <string name="monitor_title">Sonic Control</string>
     <string name="monitor_waiting">Очікування навушників…</string>
     <string name="monitor_left">Л</string>
@@ -11,5 +11,5 @@
     <string name="monitor_stale">останні відомі значення</string>
     <string name="monitor_reconnecting">перепідключення</string>
     <string name="monitor_unknown">?</string>
-    <string name="monitor_stop">Зупинити моніторинг</string>
+    <string name="monitor_stop">Вимкнути</string>
 </resources>
