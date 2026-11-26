@@ -45,6 +45,8 @@ class SessionManager(
     private val autoReconnect: () -> Boolean,
     private val policy: ReconnectPolicy = ReconnectPolicy(),
     private val onStarted: suspend (address: String) -> Unit = {},
+    /** One coordinator for the whole process: budgets and breakers survive session restarts, so restart loops stay bounded too. */
+    val coordinator: ConnectionCoordinator = ConnectionCoordinator(clock),
 ) {
     private sealed interface Op {
         data class Connect(val address: String) : Op
@@ -81,6 +83,12 @@ class SessionManager(
     fun connect(address: String) { ops.trySend(Op.Connect(address)) }
     fun disconnect() { ops.trySend(Op.Disconnect) }
     fun onAudioLink(address: String, connected: Boolean) { ops.trySend(Op.Audio(address, connected)) }
+
+    /** A relevant Bluetooth event (audio connected, adapter on, app opened, ACL up): paused recoveries get a trial attempt. */
+    fun wake(reason: String) { coordinator.onRelevantEvent(reason); log(EventCategory.CONNECTION, "coordinator wake: $reason", null) }
+
+    /** Number of the running device session (increments on every start/stop); null when none runs. */
+    val currentSessionGen: Long? get() = running?.gen
 
     /** The link of the current session, for read-only Lab inspection. */
     fun currentLink(): DeviceLink? = running?.link
@@ -123,6 +131,8 @@ class SessionManager(
             stop()
             val next = if (autoReconnect()) ConnectionState.Reconnecting(0, 0) else ConnectionState.Idle
             _active.update { it?.copy(connection = next, links = LinkStatus(audio = AudioLinkState.DISCONNECTED)) }
+        } else if (running != null) {
+            wake("audio connected")
         } else if (running == null && autoReconnect()) {
             cancelRetry()
             start(op.address, attempt = 1)
@@ -167,7 +177,7 @@ class SessionManager(
             _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Failed("Bluetooth unavailable"), HeadphoneState(identity.name ?: address))
             return
         }
-        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock, periodicRefresh = true))
+        val session = driver.createSession(link, identity, DriverEnvironment(sessionScope, experimental, fastPair, sink, clock, periodicRefresh = true, coordinator = coordinator))
         val audio = links.audioState(address)
         running = Running(myGen, address, session, link, sessionScope)
         _active.value = ActiveDevice(identity, driver.id, driver.displayName, match, ConnectionState.Starting, session.state.value, LinkStatus(audio = audio))

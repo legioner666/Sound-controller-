@@ -42,12 +42,23 @@ data class CharacteristicInfo(
 
 data class ServiceInfo(val uuid: UUID, val name: String?, val characteristics: List<CharacteristicInfo>)
 
-/** Whether the app can currently read/control the headset; independent of whether audio is connected. */
+/**
+ * Three independent questions (TASK 010): is audio connected ([LinkStatus.audio]), is telemetry arriving ([TelemetryStatus]),
+ * can commands be sent ([ControlStatus])? A plain GATT link or a Fast Pair stream is telemetry, never control.
+ */
+enum class TelemetryStatus {
+    /** Data (battery, active earbuds, notifications) arrived within [FRESH_MILLIS]. */
+    LIVE,
+    /** Data arrived once, but not recently: everything shown is last-known. */
+    STALE,
+    /** No data at all in this session. */
+    NONE,
+}
+
+/** Whether the app can currently send commands to the headset; independent of audio and of telemetry. */
 enum class ControlStatus {
     /** The vendor command channel was confirmed by a valid frame. */
     CONNECTED,
-    /** Only read-only sources (plain GATT, Fast Pair stream) are up; commands cannot be sent. A GATT link alone never means control. */
-    DATA_ONLY,
     RECONNECTING,
     UNAVAILABLE,
 }
@@ -66,10 +77,24 @@ data class ActiveDevice(
     /** Never derived from [connection] alone: a session can be Active while every channel is down. */
     val controlStatus: ControlStatus get() = when {
         links.control == ChannelState.CONFIRMED -> ControlStatus.CONNECTED
-        links.gatt == ChannelState.CONFIRMED || links.rfcomm == ChannelState.CONFIRMED -> ControlStatus.DATA_ONLY
-        headphone.live.reconnect?.startsWith("gave up") == false || connection is ConnectionState.Reconnecting || connection == ConnectionState.Starting -> ControlStatus.RECONNECTING
+        headphone.live.reconnect?.let { !it.startsWith("paused") && !it.startsWith("gave up") } == true || connection is ConnectionState.Reconnecting || connection == ConnectionState.Starting -> ControlStatus.RECONNECTING
         else -> ControlStatus.UNAVAILABLE
     }
+
+    /** Newest moment any telemetry arrived: received bytes, a battery reading or an active-components report. */
+    val lastTelemetryMillis: Long?
+        get() = listOfNotNull(headphone.live.lastRxMillis, headphone.activeUpdatedMillis, headphone.battery?.let { b ->
+            listOfNotNull(b.left?.updatedMillis, b.right?.updatedMillis, b.case?.updatedMillis, b.single?.updatedMillis).maxOrNull()
+        }).maxOrNull()
+
+    fun telemetryStatus(now: Long): TelemetryStatus = when (val t = lastTelemetryMillis) {
+        null -> TelemetryStatus.NONE
+        else -> if (now - t <= FRESH_MILLIS) TelemetryStatus.LIVE else TelemetryStatus.STALE
+    }
+
+    /** Active earbuds as current state: null when unknown or older than [FRESH_MILLIS]. */
+    fun currentActive(now: Long): ActiveComponents? =
+        headphone.active?.takeIf { headphone.activeUpdatedMillis?.let { now - it in 0..FRESH_MILLIS } == true }
 }
 
 /** Short user-facing result of an action; [success] is true only for confirmed results. */

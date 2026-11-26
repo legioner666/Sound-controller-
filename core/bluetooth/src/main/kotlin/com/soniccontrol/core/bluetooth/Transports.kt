@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,9 +41,12 @@ class GattChannelTransport(
 ) : BluetoothTransport {
     private val _state = MutableStateFlow<TransportState>(TransportState.Open)
     private val _incoming = MutableSharedFlow<ByteArray>(extraBufferCapacity = 128)
+    // Ends with the GATT client (TASK 010): no notification collector outlives a disconnected client.
     private val job: Job = scope.launch {
-        launch { client.connected.collect { if (!it) _state.value = TransportState.Closed } }
-        client.notifications.collect { n -> if (n.characteristic == notifyChar.uuid) _incoming.emit(n.value) }
+        val reader = launch { client.notifications.collect { n -> if (n.characteristic == notifyChar.uuid) _incoming.emit(n.value) } }
+        client.connected.first { !it }
+        _state.value = TransportState.Closed
+        reader.cancel()
     }
 
     override val description = "GATT ${writeChar.uuid}"

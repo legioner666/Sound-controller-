@@ -51,6 +51,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.soniccontrol.core.devices.BatteryLevel
+import com.soniccontrol.core.devices.currentCharging
+import com.soniccontrol.core.devices.isCurrent
 import com.soniccontrol.core.devices.DataSource
 import com.soniccontrol.core.devices.SupportLevel
 import com.soniccontrol.core.devices.SupportStatus
@@ -174,6 +176,10 @@ fun Banner(text: String, kind: BannerKind = BannerKind.INFO, actionLabel: String
 @Composable
 fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modifier, diameter: Int = 84, active: Boolean? = null) {
     val pct = level?.percent
+    // Freshness is time-based (TASK 010): re-evaluated every 30 s even when no new data arrives.
+    val now by androidx.compose.runtime.produceState(System.currentTimeMillis()) { while (true) { kotlinx.coroutines.delay(30_000); value = System.currentTimeMillis() } }
+    val chargingNow = level?.currentCharging(now) == true
+    val stale = pct != null && level?.isCurrent(now) == false
     val animated by animateFloatAsState(targetValue = (pct ?: 0) / 100f, animationSpec = tween(700), label = "battery")
     val track = MaterialTheme.colorScheme.surfaceVariant
     val color = when {
@@ -184,7 +190,7 @@ fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modif
     }
     val noReading = stringResource(R.string.battery_no_reading)
     val charging = stringResource(R.string.battery_charging)
-    val desc = "$label: " + (pct?.let { "$it%" } ?: noReading) + if (level?.charging == true) ", $charging" else ""
+    val desc = "$label: " + (pct?.let { "$it%" } ?: noReading) + if (chargingNow) ", $charging" else ""
     Column(modifier.semantics { contentDescription = desc }, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(diameter.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
@@ -197,11 +203,11 @@ fun BatteryGauge(label: String, level: BatteryLevel?, modifier: Modifier = Modif
             Text(pct?.let { "$it%" } ?: "—", style = MaterialTheme.typography.titleMedium)
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        AnimatedVisibility(level?.charging == true) {
+        AnimatedVisibility(chargingNow) {
             Text("⚡ $charging", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
         if (active == false) Text(stringResource(R.string.battery_inactive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (level?.lastKnown == true && pct != null) Text(stringResource(R.string.battery_last_known), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (stale) Text(stringResource(R.string.battery_last_known), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

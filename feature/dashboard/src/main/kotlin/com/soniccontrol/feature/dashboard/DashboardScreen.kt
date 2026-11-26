@@ -100,15 +100,17 @@ fun DashboardScreen(
             }
         } else {
             item {
+                // Audio, telemetry and control are shown separately (TASK 010); freshness is re-checked every 30 s.
+                val now by androidx.compose.runtime.produceState(System.currentTimeMillis()) { while (true) { kotlinx.coroutines.delay(30_000); value = System.currentTimeMillis() } }
+                val currentActive = device.currentActive(now)
                 HeadphoneHero(
                     name = device.headphone.displayName,
-                    status = stringResource(R.string.hero_status_line, connectionBrief(device), controlStatusLabel(device)),
+                    status = stringResource(R.string.hero_status_line, connectionBrief(device), controlStatusLabel(device) + " · " + telemetryLabel(device, now)),
                     battery = device.headphone.battery,
-                    leftActive = device.headphone.active?.left,
-                    rightActive = device.headphone.active?.right,
+                    leftActive = currentActive?.left,
+                    rightActive = currentActive?.right,
                     details = buildList {
-                        val activeStale = device.controlStatus.let { it == com.soniccontrol.core.devices.ControlStatus.RECONNECTING || it == com.soniccontrol.core.devices.ControlStatus.UNAVAILABLE } &&
-                            (device.headphone.activeUpdatedMillis?.let { System.currentTimeMillis() - it > 90_000L } ?: true)
+                        val activeStale = device.headphone.active != null && currentActive == null
                         device.headphone.remainingMinutes?.let { add(stringResource(R.string.hero_remaining, it / 60, it % 60)) }
                         device.headphone.active?.let { a ->
                             add(stringResource(when { a.left && a.right -> R.string.hero_active_both; a.left -> R.string.hero_active_left; a.right -> R.string.hero_active_right; else -> R.string.hero_active_none }) + if (activeStale) stringResource(R.string.hero_active_last_known) else "")
@@ -190,11 +192,17 @@ private fun connectionBrief(d: ActiveDevice): String = when (d.links.audio) {
     com.soniccontrol.core.devices.AudioLinkState.UNKNOWN -> stringResource(R.string.link_audio_brief_unknown)
 }
 
+@Composable
+private fun telemetryLabel(d: ActiveDevice, now: Long): String = stringResource(when (d.telemetryStatus(now)) {
+    com.soniccontrol.core.devices.TelemetryStatus.LIVE -> R.string.telemetry_live
+    com.soniccontrol.core.devices.TelemetryStatus.STALE -> R.string.telemetry_stale
+    com.soniccontrol.core.devices.TelemetryStatus.NONE -> R.string.telemetry_none
+})
+
 /** One status for control, derived from real channel state (never from "session active"); same source as the background notification. */
 @Composable
 private fun controlStatusLabel(d: ActiveDevice): String = stringResource(when (d.controlStatus) {
     com.soniccontrol.core.devices.ControlStatus.CONNECTED -> R.string.control_connected
-    com.soniccontrol.core.devices.ControlStatus.DATA_ONLY -> R.string.control_data_only
     com.soniccontrol.core.devices.ControlStatus.RECONNECTING -> R.string.control_reconnecting
     com.soniccontrol.core.devices.ControlStatus.UNAVAILABLE -> R.string.control_unavailable
 })

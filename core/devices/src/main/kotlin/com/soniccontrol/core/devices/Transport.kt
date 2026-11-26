@@ -12,6 +12,9 @@ sealed interface TransportState {
     data class Failed(val reason: String) : TransportState
 }
 
+/** Closed or failed: the transport will never deliver data again and everything attached to it may be released. */
+val TransportState.isEnded: Boolean get() = this is TransportState.Closed || this is TransportState.Failed
+
 /**
  * A byte channel to a headset's vendor protocol: a GATT characteristic pair or an RFCOMM socket.
  * [incoming] carries raw chunks as received; drivers reassemble frames themselves.

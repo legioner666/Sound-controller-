@@ -12,6 +12,7 @@ import com.soniccontrol.core.background.MonitorSummary
 import com.soniccontrol.core.database.SonicDatabase
 import com.soniccontrol.core.devices.ActiveDevice
 import com.soniccontrol.core.devices.HeadphoneController
+import com.soniccontrol.core.devices.currentCharging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import com.soniccontrol.core.devices.currentCharging
 
 /**
  * Decides when the foreground "device monitoring" service runs: only while the user's setting is on AND a headset is active.
@@ -43,10 +45,12 @@ class BackgroundMonitoring(
         val newest = listOfNotNull(b?.timestampMillis, a.headphone.live.lastRxMillis).maxOrNull()
         return MonitorSummary(
             deviceName = a.headphone.displayName, connected = a.links.audio == com.soniccontrol.core.devices.AudioLinkState.CONNECTED ||
-                (a.links.audio == com.soniccontrol.core.devices.AudioLinkState.UNKNOWN && (a.controlStatus == com.soniccontrol.core.devices.ControlStatus.CONNECTED || a.controlStatus == com.soniccontrol.core.devices.ControlStatus.DATA_ONLY)),
+                (a.links.audio == com.soniccontrol.core.devices.AudioLinkState.UNKNOWN && (a.controlStatus == com.soniccontrol.core.devices.ControlStatus.CONNECTED || a.telemetryStatus(now) == com.soniccontrol.core.devices.TelemetryStatus.LIVE)),
             left = b?.left?.percent, right = b?.right?.percent, case = b?.case?.percent, single = b?.single?.percent,
-            leftCharging = b?.left?.charging == true, rightCharging = b?.right?.charging == true, caseCharging = b?.case?.charging == true,
-            stale = a.controlStatus == com.soniccontrol.core.devices.ControlStatus.RECONNECTING || a.controlStatus == com.soniccontrol.core.devices.ControlStatus.UNAVAILABLE || (newest != null && now - newest > STALE_MILLIS), reconnect = a.headphone.live.reconnect,
+            // Charging only while its report is current (TASK 010): an old charging=true is never shown as "charging now".
+            leftCharging = b?.left?.currentCharging(now) == true, rightCharging = b?.right?.currentCharging(now) == true, caseCharging = b?.case?.currentCharging(now) == true,
+            // Stale whenever telemetry is not live, regardless of the control channel (the main screen uses the same rule).
+            stale = a.telemetryStatus(now) != com.soniccontrol.core.devices.TelemetryStatus.LIVE || (newest != null && now - newest > STALE_MILLIS), reconnect = a.headphone.live.reconnect,
         )
     }
 

@@ -75,7 +75,13 @@ abstract class BaseDriverSession(
 
     protected fun launch(block: suspend () -> Unit): Job = env.scope.launch { block() }.also { synchronized(jobs) { jobs += it } }
 
-    protected fun <T : BluetoothTransport> track(t: T): T = t.also { synchronized(transports) { transports += it } }
+    /** Tracks a transport for [stop]; ended ones are dropped first, so the list never grows with every refresh (TASK 010). */
+    protected fun <T : BluetoothTransport> track(t: T): T = t.also {
+        synchronized(transports) { transports.removeAll { x -> x.state.value.isEnded }; transports += it }
+    }
+
+    /** Transports this session still holds (open or opening); bounded by the coordinator budget. For diagnostics and tests. */
+    val trackedTransports: Int get() = synchronized(transports) { transports.count { !it.state.value.isEnded } }
 
     protected fun acceptBattery(status: BatteryStatus) {
         if (!status.hasAnyValue && !status.hasChargingInfo) return
@@ -173,26 +179,50 @@ abstract class BaseDriverSession(
     }
 
     protected fun startRecovery() {
-        if (recoveryJob?.isActive == true) return
+        if (recoveryJob?.isActive == true) return   // exactly one recovery job per session, never parallel
         recoveryJob = launch {
             onGattLost()
             markBatteryStale()   // the live source is gone: old values stay visible but are labelled last-known
-            for ((i, wait) in recoveryDelaysMillis.withIndex()) {
-                updateLive { it.copy(reconnect = "waiting ${wait / 1000} s before attempt ${i + 1}/${recoveryDelaysMillis.size}") }
-                kotlinx.coroutines.delay(wait)
-                updateLive { it.copy(reconnect = "attempt ${i + 1}/${recoveryDelaysMillis.size}") }
-                log(EventCategory.GATT, "GATT recovery attempt ${i + 1}/${recoveryDelaysMillis.size}: fresh scan and endpoint verification")
-                if (link.reconnectGatt()) {
-                    updateLive { it.copy(reconnect = null, stopReason = null, reconnects = it.reconnects + 1, subscriptions = link.activeSubscriptions) }
-                    log(EventCategory.GATT, "GATT recovered after attempt ${i + 1}")
-                    launchGattSources()
-                    onGattRestored()
-                    return@launch
+            var attempt = 0
+            val first = recoveryDelaysMillis.first()
+            updateLive { it.copy(reconnect = "waiting ${first / 1000} s before attempt 1") }
+            kotlinx.coroutines.delay(first)   // a link that drops for a moment usually comes back on its own
+            while (true) {
+                if (link.gattState.value == ChannelState.CONFIRMED) { recovered(attempt); return@launch }
+                when (val d = env.coordinator.tryAcquire(ConnectionCoordinator.Kind.GATT)) {
+                    is ConnectionCoordinator.Decision.Denied -> {
+                        // Circuit open or budget used: wait for a relevant Bluetooth event or the cooldown, never spin.
+                        val wait = env.coordinator.cooldownRemaining(ConnectionCoordinator.Kind.GATT).coerceAtLeast(RECOVERY_PAUSE_MIN_MILLIS)
+                        updateLive { it.copy(reconnect = "paused: waiting for a Bluetooth event or ${wait / 60_000} min", stopReason = "GATT could not be restored yet") }
+                        log(EventCategory.GATT, "GATT recovery paused (${d.reason})")
+                        val seen = env.coordinator.wake.value
+                        kotlinx.coroutines.withTimeoutOrNull(wait) { env.coordinator.wake.first { it != seen } }
+                    }
+                    ConnectionCoordinator.Decision.Allowed -> {
+                        attempt++
+                        updateLive { it.copy(reconnect = "attempt $attempt") }
+                        log(EventCategory.GATT, "GATT recovery attempt $attempt: fresh scan and endpoint verification")
+                        if (link.reconnectGatt()) {
+                            env.coordinator.reportSuccess(ConnectionCoordinator.Kind.GATT)
+                            recovered(attempt)
+                            return@launch
+                        }
+                        env.coordinator.reportFailure(ConnectionCoordinator.Kind.GATT)
+                        val wait = recoveryDelaysMillis.getOrElse(attempt) { recoveryDelaysMillis.last() }
+                        updateLive { it.copy(reconnect = "waiting ${wait / 1000} s after attempt $attempt") }
+                        val seen = env.coordinator.wake.value
+                        kotlinx.coroutines.withTimeoutOrNull(wait) { env.coordinator.wake.first { it != seen } }
+                    }
                 }
             }
-            updateLive { it.copy(reconnect = "gave up after ${recoveryDelaysMillis.size} attempts", stopReason = "GATT could not be restored") }
-            log(EventCategory.GATT, "GATT recovery gave up")
         }
+    }
+
+    private suspend fun recovered(attempts: Int) {
+        updateLive { it.copy(reconnect = null, stopReason = null, reconnects = it.reconnects + 1, subscriptions = link.activeSubscriptions) }
+        log(EventCategory.GATT, "GATT recovered after $attempts attempt(s)")
+        launchGattSources()
+        onGattRestored()
     }
 
     private val refreshTriggers = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED)
@@ -209,7 +239,7 @@ abstract class BaseDriverSession(
 
     private fun refreshSignature(): String = state.value.let { s ->
         val b = s.battery
-        listOf(b?.left, b?.right, b?.case, b?.single).joinToString("|") { "${it?.percent}/${it?.charging}" } + "|${s.active}"
+        listOf(b?.left, b?.right, b?.case, b?.single).joinToString("|") { "${it?.charging}" } + "|${s.active}"   // percent drifts slowly: only charging/active reset the interval
     }
 
     /**
@@ -236,7 +266,9 @@ abstract class BaseDriverSession(
     private suspend fun refreshOnce(reason: String, interval: Long, shouldMarkStale: () -> Boolean): Long {
         if (!env.fastPairListening.value) return interval
         if (currentStream?.state?.value == TransportState.Open) return interval   // a stream is open: never stack another
+        if (reason != "scheduled" && lastRefreshOpenMillis?.let { env.clock() - it < EVENT_REFRESH_MIN_MILLIS } == true) return interval
         val before = refreshSignature()
+        lastRefreshOpenMillis = env.clock()
         val stream = openFastPairStream()
         if (stream == null) {
             if (shouldMarkStale()) markBatteryStale()
@@ -290,18 +322,35 @@ abstract class BaseDriverSession(
     private suspend fun openFastPairStream(): BluetoothTransport? {
         if (link.sdpUuids().isNotEmpty() && StandardUuids.FAST_PAIR_MESSAGE_STREAM !in link.sdpUuids()) return null
         val writable = env.experimentalEnabled.value
-        val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = writable) ?: return null
+        when (val d = env.coordinator.tryAcquire(ConnectionCoordinator.Kind.RFCOMM)) {
+            is ConnectionCoordinator.Decision.Denied -> { logDenied("RFCOMM", d.reason); return null }
+            ConnectionCoordinator.Decision.Allowed -> lastDenied = null
+        }
+        val raw = link.openRfcomm(StandardUuids.FAST_PAIR_MESSAGE_STREAM, writable = writable)
+        if (raw == null) { env.coordinator.reportFailure(ConnectionCoordinator.Kind.RFCOMM); return null }
+        env.coordinator.reportSuccess(ConnectionCoordinator.Kind.RFCOMM)
         log(EventCategory.RFCOMM, "Fast Pair Message Stream open (RFCOMM, ${if (writable) "experimental request allowed" else "listen-only"})")
         return track(FramedTransport(raw, env.scope, env.clock, FastPair::split)).also { currentStream = it }
     }
 
     @Volatile private var currentStream: BluetoothTransport? = null
+    @Volatile private var lastRefreshOpenMillis: Long? = null
+    @Volatile private var lastDenied: String? = null
+
+    /** A denial is logged once per reason change, so a closed circuit cannot flood the bounded diagnostics log. */
+    private fun logDenied(kind: String, reason: String) {
+        if (lastDenied == reason) return
+        lastDenied = reason
+        log(EventCategory.RFCOMM, "$kind open skipped: $reason")
+    }
 
     private var l2capAttempts = 0
     private companion object {
         const val MAX_L2CAP_ATTEMPTS = 3
         const val PSM_READS = 3
         const val GATT_WAIT_MILLIS = 30_000L
+        const val RECOVERY_PAUSE_MIN_MILLIS = 60_000L
+        const val EVENT_REFRESH_MIN_MILLIS = 60_000L
         const val REFRESH_MIN_MILLIS = 30_000L
         const val REFRESH_MAX_MILLIS = 5 * 60_000L
         const val REFRESH_MIN_GAP_MILLIS = 5_000L
@@ -315,6 +364,7 @@ abstract class BaseDriverSession(
     private suspend fun openFastPairL2cap(): BluetoothTransport? {
         while (l2capAttempts < MAX_L2CAP_ATTEMPTS && !link.l2capDenied) {
             l2capAttempts++
+            if (env.coordinator.tryAcquire(ConnectionCoordinator.Kind.L2CAP) is ConnectionCoordinator.Decision.Denied) { log(EventCategory.RFCOMM, "L2CAP skipped: coordinator budget or circuit"); return null }
             val up = kotlinx.coroutines.withTimeoutOrNull(GATT_WAIT_MILLIS) { link.gattState.first { it == ChannelState.CONFIRMED } }
             if (up == null) { log(EventCategory.RFCOMM, "L2CAP: GATT endpoint not available (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)"); continue }
             if (StandardUuids.FAST_PAIR_SERVICE !in link.gattServices()) { log(EventCategory.RFCOMM, "L2CAP: endpoint has no Fast Pair service"); return null }
@@ -331,9 +381,11 @@ abstract class BaseDriverSession(
             if (psm == null) continue
             val raw = link.openL2cap(psm, writable = false)
             if (raw != null) {
+                env.coordinator.reportSuccess(ConnectionCoordinator.Kind.L2CAP)
                 log(EventCategory.RFCOMM, "Fast Pair Message Stream open (L2CAP PSM $psm, secure, listen-only)")
                 return track(FramedTransport(raw, env.scope, env.clock, FastPair::split)).also { currentStream = it }
             }
+            env.coordinator.reportFailure(ConnectionCoordinator.Kind.L2CAP)
             log(EventCategory.RFCOMM, "L2CAP PSM $psm did not open (attempt $l2capAttempts/$MAX_L2CAP_ATTEMPTS)")
             if (link.l2capDenied) { log(EventCategory.RFCOMM, "L2CAP security refusal confirmed: not retrying in this session"); return null }
             kotlinx.coroutines.delay(2_000L * l2capAttempts)
@@ -353,6 +405,16 @@ abstract class BaseDriverSession(
                 if (!ok) log(EventCategory.INFO, "Fast Pair: no active components reply within 3 s")
             }
         }
+        // The reader ends when the stream ends (TASK 010): before, every refresh left a collector on a dead socket behind.
+        kotlinx.coroutines.coroutineScope {
+            val reader = launch { readFrames(t, answered) }
+            t.state.first { it.isEnded }
+            reader.cancel()
+        }
+        runCatching { t.close() }
+    }
+
+    private suspend fun readFrames(t: BluetoothTransport, answered: kotlinx.coroutines.CompletableDeferred<Boolean>) {
         t.incoming.collect { frame ->
             val e = fastPairSession.onFrame(frame)
             if (e == null) { log(EventCategory.ERROR, "Fast Pair: invalid frame ignored", frame); return@collect }

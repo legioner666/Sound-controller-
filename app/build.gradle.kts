@@ -14,6 +14,8 @@ android {
         targetSdk = 36 // Android 16
         versionCode = runNumber
         versionName = "0.8.$runNumber"
+        // Commit the build was made from (CI sets GITHUB_SHA); shown in diagnostics exports (TASK 010).
+        buildConfigField("String", "GIT_COMMIT", "\"" + (providers.environmentVariable("GITHUB_SHA").orNull?.take(7) ?: "local") + "\"")
     }
 
     signingConfigs {

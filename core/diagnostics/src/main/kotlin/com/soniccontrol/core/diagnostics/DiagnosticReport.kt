@@ -17,6 +17,8 @@ object DiagnosticReport {
         device: Map<String, Any?>?,
         events: List<DiagnosticEvent>,
         redactor: Redactor,
+        /** Non-identifying build and process metadata (versionCode, commit, process session id, start time). */
+        meta: Map<String, Any?> = emptyMap(),
     ): String {
         val root = linkedMapOf<String, Any?>(
             "format" to "sonic-control-diagnostics",
@@ -24,6 +26,8 @@ object DiagnosticReport {
             "createdAtMillis" to createdAtMillis,
             "privacy" to "addresses hashed with a per-install salt; device names, serial numbers and identifying GATT values removed",
             "app" to mapOf("version" to appVersion),
+            "build" to meta["build"],
+            "process" to meta["process"],
             "phone" to mapOf("androidSdk" to androidSdk, "model" to phoneModel),
             "device" to device?.let { scrub(it, redactor) },
             "events" to events.map { e ->

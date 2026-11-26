@@ -15,6 +15,7 @@ import com.soniccontrol.core.devices.ManufacturerAdvert
 import com.soniccontrol.core.devices.ServiceInfo
 import com.soniccontrol.core.devices.StandardUuids
 import com.soniccontrol.core.devices.TransportState
+import com.soniccontrol.core.devices.isEnded
 import com.soniccontrol.core.diagnostics.DiagnosticEvent
 import com.soniccontrol.core.diagnostics.DiagnosticSink
 import com.soniccontrol.core.diagnostics.EventCategory
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -156,7 +158,7 @@ class AndroidDeviceLink(
             l2capSecurityDenied = true
             sink.log(DiagnosticEvent(clock(), EventCategory.RFCOMM, "L2CAP refused by Android security clearance: no further L2CAP attempts this session", null, target.address))
         }
-        t?.also { synchronized(transports) { transports.add(it) } }
+        t?.also { synchronized(transports) { transports.removeAll { x -> x.state.value.isEnded }; transports.add(it) } }
     }
 
     /**
@@ -237,7 +239,7 @@ class AndroidDeviceLink(
                 gatt = c
                 gattDevice = step.device
                 _gattState.value = ChannelState.CONFIRMED // services were discovered
-                scope.launch { c.connected.collect { up -> if (!up && gatt === c) _gattState.value = ChannelState.CLOSED } }
+                scope.launch { c.connected.first { !it }; if (gatt === c) _gattState.value = ChannelState.CLOSED }   // one-shot, ends with this client
                 return@withLock c
             }
             c.close()
@@ -295,7 +297,7 @@ class AndroidDeviceLink(
         } ?: return null
         if (!g.enableNotifications(n)) return null
         subscribed += n.uuid
-        return GattChannelTransport(g, n, w, scope, sink, clock).also { synchronized(transports) { transports += it } }
+        return GattChannelTransport(g, n, w, scope, sink, clock).also { synchronized(transports) { transports.removeAll { x -> x.state.value.isEnded }; transports += it } }
     }
 
     override suspend fun openRfcomm(uuid: UUID, writable: Boolean): BluetoothTransport? = channelLock.withLock {
@@ -318,12 +320,12 @@ class AndroidDeviceLink(
             if (writable && !openRfcommUp()) _rfcommState.value = ChannelState.FAILED
             return@withLock null
         }
-        synchronized(transports) { transports.add(t) }
+        synchronized(transports) { transports.removeAll { x -> x.state.value.isEnded }; transports.add(t) }
         if (writable) _rfcommState.value = ChannelState.OPEN
-        scope.launch {
-            t.state.collect { st ->
-                if (writable && st != TransportState.Open && !openRfcommUp()) _rfcommState.value = ChannelState.CLOSED
-            }
+        // One-shot watcher (TASK 010): ends with the socket instead of collecting a dead StateFlow forever.
+        if (writable) scope.launch {
+            t.state.first { it != TransportState.Open && it != TransportState.Opening }
+            if (!openRfcommUp()) _rfcommState.value = ChannelState.CLOSED
         }
         t
     }
@@ -369,6 +371,9 @@ class AndroidDeviceLink(
         }
         g.notifications.collect { n -> lastValues[n.characteristic] = n.value.toHex(); onValue(n.characteristic, n.value) }
     }
+
+    /** Transports the link still holds open; for diagnostics (TASK 010 socket-leak check). */
+    val openTransports: Int get() = synchronized(transports) { transports.count { !it.state.value.isEnded } }
 
     override suspend fun close() {
         closed = true

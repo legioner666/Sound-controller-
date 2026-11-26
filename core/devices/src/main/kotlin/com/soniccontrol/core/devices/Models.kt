@@ -73,3 +73,21 @@ data class BatteryStatus(
 enum class NoiseMode { OFF, ANC, AMBIENT, TALK_THRU }
 
 data class NoiseStatus(val mode: NoiseMode, val source: DataSource, val timestampMillis: Long)
+
+/** How long a reading counts as current (TASK 010). The Fast Pair refresh reaches its slowest pace at 5 min; twice that is the limit. */
+const val FRESH_MILLIS = 10 * 60_000L
+
+/** The percentage is a current reading: not marked last-known and not older than [maxAgeMillis]. */
+fun BatteryLevel.isCurrent(now: Long, maxAgeMillis: Long = FRESH_MILLIS): Boolean =
+    !lastKnown && percent != null && updatedMillis?.let { now - it in 0..maxAgeMillis } == true
+
+/**
+ * Charging as it may be shown as the present state: null when it was never reported, when the component is last-known, or when
+ * the charging report is older than [maxAgeMillis]. An old charging=true is history, never "charging now".
+ */
+fun BatteryLevel.currentCharging(now: Long, maxAgeMillis: Long = FRESH_MILLIS): Boolean? {
+    if (lastKnown) return null
+    val at = chargingUpdatedMillis ?: updatedMillis ?: return null
+    return charging?.takeIf { now - at in 0..maxAgeMillis }
+}
+

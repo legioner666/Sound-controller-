@@ -45,6 +45,16 @@ class DiagnosticsTest {
         assertEquals("<device-name> left", redactor.text("ANNA'S TUNE BEAM 3 left"))
     }
 
+    /** TASK 010: every export says exactly which build and which process run produced it. */
+    @Test fun reportCarriesBuildAndProcessIdentity() {
+        val json = DiagnosticReport.build("0.8.15", 36, "Phone", 1L, null, emptyList(), Redactor("s", emptyList(), emptyList()),
+            mapOf("build" to mapOf("versionCode" to 15, "gitCommit" to "abc1234"), "process" to mapOf("sessionId" to "1a2b3c4d", "startedAtMillis" to 5L))).replace(" ", "").replace("\n", "")
+        assertTrue(json.contains("\"versionCode\":15"))
+        assertTrue(json.contains("abc1234"))
+        assertTrue(json.contains("1a2b3c4d"))
+        assertTrue(json.contains("\"startedAtMillis\":5"))
+    }
+
     @Test fun logIsBounded() {
         val log = DiagnosticLog(capacity = 3, clock = { 0L })
         repeat(5) { log.log(EventCategory.INFO, "e$it") }

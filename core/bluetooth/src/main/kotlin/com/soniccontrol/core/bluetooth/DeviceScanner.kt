@@ -113,7 +113,12 @@ class DeviceScanner(
         val record = r.scanRecord
         val name = record?.deviceName ?: runCatching { r.device.name }.getOrNull()
         val fpData = record?.getServiceData(FAST_PAIR_UUID)
-        if (observed.size < 300 || observed.containsKey(r.device.address)) {
+        // Bounded and least-recently-seen first out (TASK 010). Before, after 300 devices (a long drive) new addresses were
+        // refused, including the headset's own rotated LE address, so endpoint recovery could never find it again.
+        if (!observed.containsKey(r.device.address) && observed.size >= MAX_OBSERVATIONS) {
+            observed.values.minByOrNull { it.lastSeenMillis }?.let { observed.remove(it.address) }
+        }
+        run {
             observed[r.device.address] = BleObservation(
                 address = r.device.address,
                 name = name,
@@ -189,6 +194,7 @@ class DeviceScanner(
     }
 
     companion object {
+        private const val MAX_OBSERVATIONS = 300
         private val FAST_PAIR_UUID: ParcelUuid = ParcelUuid.fromString("0000fe2c-0000-1000-8000-00805f9b34fb")
     }
 }

@@ -1,5 +1,8 @@
 # Журнал змін
 
+## 0.8.x (TASK 010)
+- Single connection coordinator: hourly socket budget, circuit breaker, event-driven recovery that never gives up for good; leaks of stream readers and transports fixed; scanner LRU; time-based freshness for battery, charging and active earbuds; separate audio / telemetry / control status; build and process identity in diagnostics; 12-hour simulation test. See docs/TASK010_REPORT.md.
+
 ## 0.8.x stabilization (TASK 009)
 - Reconnect rebuilt: fresh scan and endpoint verification on every attempt; audio state from A2DP/HFP profiles; L2CAP stops after a security refusal; stale data labelled; adaptive event-driven refresh; JBL AA 06 envelope; stricter diagnostics allowlist. See docs/TASK009_REPORT.md.
 

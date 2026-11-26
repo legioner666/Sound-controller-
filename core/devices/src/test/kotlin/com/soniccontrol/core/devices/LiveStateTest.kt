@@ -27,8 +27,9 @@ class LiveStateTest {
     private val bas = StandardUuids.BATTERY_SERVICE
     private val rf = StandardUuids.FAST_PAIR_MESSAGE_STREAM
 
-    private fun TestScope.session(link: FakeLink, fastPair: Boolean = false): BaseDriverSession {
-        val env = DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, { testScheduler.currentTime }, periodicRefresh = true)
+    private fun TestScope.session(link: FakeLink, fastPair: Boolean = false, coordinator: ConnectionCoordinator? = null): BaseDriverSession {
+        val clock = { testScheduler.currentTime }
+        val env = DriverEnvironment(backgroundScope, MutableStateFlow(false), MutableStateFlow(fastPair), DiagnosticSink { }, clock, periodicRefresh = true, coordinator = coordinator ?: ConnectionCoordinator(clock))
         return object : BaseDriverSession(link, DeviceIdentity(link.address, "Fake"), env, "t", HeadphoneState("Fake")) {
             override suspend fun start() = startUniversalSources()
         }
@@ -59,7 +60,7 @@ class LiveStateTest {
         val readsBefore = link.reads
         link.reconnectResults += listOf(false, true)
         link.gattStateFlow.value = ChannelState.CLOSED; runCurrent()
-        assertEquals("waiting 2 s before attempt 1/5", s.state.value.live.reconnect)  // not shown as an attempt before one runs
+        assertEquals("waiting 2 s before attempt 1", s.state.value.live.reconnect)  // not shown as an attempt before one runs
         assertEquals("GATT link lost", s.state.value.live.stopReason)
         advanceTimeBy(2_001); runCurrent()               // first attempt fails
         advanceTimeBy(5_001); runCurrent()              // second succeeds
@@ -69,15 +70,28 @@ class LiveStateTest {
         assertTrue("battery re-read after recovery", link.reads > readsBefore)
     }
 
-    @Test fun recoveryIsBoundedAndReportsWhyUpdatesStopped() = runTest {
-        val link = basLink(); val s = session(link); s.start(); runCurrent()
+    /**
+     * TASK 010 (v0.8.12 field log: 20 failed GATT reconnects, 0 recoveries, nothing after the first cycle). Recovery never
+     * gives up for good: after 5 failures the circuit opens, then one trial per cooldown, at most 20 attempts an hour, and a
+     * relevant event (audio connected, Bluetooth on, app opened) gives an immediate trial.
+     */
+    @Test fun recoveryPausesBehindTheCircuitAndResumesOnARelevantEvent() = runTest {
+        val clock = { testScheduler.currentTime }
+        val coordinator = ConnectionCoordinator(clock)
+        val link = basLink(); val s = session(link, coordinator = coordinator); s.start(); runCurrent()
         link.gattStateFlow.value = ChannelState.CLOSED
         advanceTimeBy(10 * 60_000); runCurrent()
         assertEquals(5, link.reconnectCalls)
-        assertEquals("gave up after 5 attempts", s.state.value.live.reconnect)
-        assertEquals("GATT could not be restored", s.state.value.live.stopReason)
+        assertTrue(s.state.value.live.reconnect!!.startsWith("paused"))
+        assertEquals("GATT could not be restored yet", s.state.value.live.stopReason)
         advanceTimeBy(60 * 60_000); runCurrent()
-        assertEquals(5, link.reconnectCalls)             // never an endless loop
+        assertTrue("bounded: ${link.reconnectCalls}", link.reconnectCalls in 6..25)   // one trial per cooldown, never a loop
+        val before = link.reconnectCalls
+        link.reconnectResults += true
+        coordinator.onRelevantEvent("audio connected"); runCurrent()
+        assertEquals(before + 1, link.reconnectCalls)
+        assertNull(s.state.value.live.reconnect)
+        assertEquals(1, s.state.value.live.reconnects)
     }
 
     @Test fun repeatedLossesStartOneRecoveryAtATime() = runTest {
@@ -111,9 +125,9 @@ class LiveStateTest {
         assertEquals(ControlStatus.UNAVAILABLE, base.controlStatus)                       // v0.8.11: Active, but every channel closed
         val reconnecting = base.copy(headphone = HeadphoneState("Fake", live = LiveInfo(reconnect = "attempt 2/5")))
         assertEquals(ControlStatus.RECONNECTING, reconnecting.controlStatus)
-        val gaveUp = base.copy(headphone = HeadphoneState("Fake", live = LiveInfo(reconnect = "gave up after 5 attempts")))
+        val gaveUp = base.copy(headphone = HeadphoneState("Fake", live = LiveInfo(reconnect = "paused: waiting for a Bluetooth event or 10 min")))
         assertEquals(ControlStatus.UNAVAILABLE, gaveUp.controlStatus)
-        assertEquals("plain GATT is not vendor control", ControlStatus.DATA_ONLY, base.copy(links = base.links.copy(gatt = ChannelState.CONFIRMED)).controlStatus)
+        assertEquals("plain GATT is not vendor control", ControlStatus.UNAVAILABLE, base.copy(links = base.links.copy(gatt = ChannelState.CONFIRMED)).controlStatus)
         assertEquals(ControlStatus.CONNECTED, base.copy(links = base.links.copy(gatt = ChannelState.CONFIRMED, control = ChannelState.CONFIRMED)).controlStatus)
     }
 

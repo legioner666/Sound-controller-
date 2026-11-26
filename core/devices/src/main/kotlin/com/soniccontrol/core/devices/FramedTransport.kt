@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -20,8 +21,11 @@ class FramedTransport(
 ) : BluetoothTransport {
     private val buffer = StreamBuffer(splitter = splitter)
     private val frames = MutableSharedFlow<ByteArray>(extraBufferCapacity = 64)
+    // The reader ends with the inner transport (TASK 010): a socket the headset closed no longer keeps a coroutine alive.
     private val job: Job = scope.launch {
-        inner.incoming.collect { chunk -> buffer.feed(chunk, clock()).forEach { frames.emit(it) } }
+        val reader = launch { inner.incoming.collect { chunk -> buffer.feed(chunk, clock()).forEach { frames.emit(it) } } }
+        inner.state.first { it.isEnded }
+        reader.cancel()
     }
 
     override val description: String get() = inner.description

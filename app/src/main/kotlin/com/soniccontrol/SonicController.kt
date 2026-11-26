@@ -176,6 +176,7 @@ class SonicController(
         scope.launch {
             availability.collect { a ->
                 if (a == BluetoothAvailability.READY) {
+                    sessions.wake("Bluetooth ready")
                     ensureAudioMonitor()
                     scanner?.loadBonded(); scanner?.loadAudioConnected()
                     delay(800)
@@ -233,6 +234,8 @@ class SonicController(
     private fun onAcl(address: String, connected: Boolean) {
         log.log(EventCategory.CONNECTION, if (connected) "ACL connected (not an audio signal)" else "ACL disconnected (not an audio signal)", address = address)
         // Informational only: LE/ACL links say nothing about audio. Sessions start and stop from the audio profile monitor.
+        // A new link to the active headset is still a good moment for a paused recovery to try once (TASK 010).
+        if (connected && active.value?.identity?.address == address) sessions.wake("ACL connected")
     }
 
     /** Process-lifetime monitor (it holds only profile proxies and one receiver); started once Bluetooth is ready and permitted. */
@@ -245,6 +248,7 @@ class SonicController(
 
     override fun refreshAvailability() {
         monitor.refresh()
+        if (active.value != null) sessions.wake("app opened")
         if (ready()) { ensureAudioMonitor(); if (active.value == null) scope.launch { delay(800); autoConnect() } }
         if (ready()) { scanner?.loadBonded(); scanner?.loadAudioConnected() }
     }
@@ -350,7 +354,15 @@ class SonicController(
             )
         }
         val resolver = rankEndpoints().map { c -> mapOf("device" to redactor.address(c.observation.address), "score" to c.score, "reasons" to c.reasons, "auto" to c.auto) }
+        val coord = sessions.coordinator.snapshot.value
         val diag = mapOf(
+            "coordinator" to mapOf(
+                "kinds" to coord.kinds.mapKeys { it.key.name }.mapValues { (_, k) -> mapOf("breaker" to k.breaker.name, "consecutiveFailures" to k.consecutiveFailures, "opensLastHour" to k.opensLastHour, "attempts" to k.attempts, "successes" to k.successes, "failures" to k.failures, "denied" to k.denied) },
+                "wakes" to coord.wakes, "lastWakeReason" to coord.lastWakeReason, "lastWakeAgeSeconds" to coord.lastWakeMillis?.let { (clock() - it) / 1000 },
+                "openTransports" to androidLink()?.openTransports,
+                "deviceSession" to sessions.currentSessionGen,
+            ),
+            "telemetry" to a?.let { d -> mapOf("status" to d.telemetryStatus(clock()).name, "control" to d.controlStatus.name, "audio" to d.links.audio.name) },
             "connectionAttempts" to attemptsOut, "bleObservations" to observations, "endpointCandidates" to resolver,
             "manualEndpointSelected" to (manualEndpoint.value != null),
             "fastPair" to a?.let { d ->
@@ -396,6 +408,11 @@ class SonicController(
                 "notes" to it.headphone.notes,
             )
         } ?: emptyMap<String, Any?>()) + diag
-        return DiagnosticReport.build(appVersion, Build.VERSION.SDK_INT, Build.MODEL, clock(), device, log.events.value, redactor)
+        val process = ProcessInfo
+        val meta = mapOf(
+            "build" to mapOf("versionName" to appVersion, "versionCode" to BuildConfig.VERSION_CODE, "gitCommit" to BuildConfig.GIT_COMMIT, "buildType" to BuildConfig.BUILD_TYPE),
+            "process" to mapOf("sessionId" to process.sessionId, "startedAtMillis" to process.startedAtMillis(), "uptimeSeconds" to (clock() - process.startedAtMillis()) / 1000),
+        )
+        return DiagnosticReport.build(appVersion, Build.VERSION.SDK_INT, Build.MODEL, clock(), device, log.events.value, redactor, meta)
     }
 }

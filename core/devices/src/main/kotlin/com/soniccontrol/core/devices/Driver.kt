@@ -25,6 +25,8 @@ class DriverEnvironment(
     val clock: () -> Long,
     /** Long-interval safety-net polling (Fast Pair re-open, JBL mode GET). On in the app; tests with idle-waiting turn it on explicitly. */
     val periodicRefresh: Boolean = false,
+    /** The single gate for automatic connection attempts (budget + circuit breaker), shared by all sessions of the process. */
+    val coordinator: ConnectionCoordinator = ConnectionCoordinator(clock),
 )
 
 /** Liveness of the state itself (TASK 007): when data last arrived, why updates may have stopped, what recovery is doing. */

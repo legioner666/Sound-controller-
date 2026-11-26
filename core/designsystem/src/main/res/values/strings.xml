@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="telemetry_live">Data live</string>
+    <string name="telemetry_stale">Data outdated</string>
+    <string name="telemetry_none">No data</string>
     <string name="link_audio_brief_off">Audio disconnected</string>
     <string name="link_audio_brief_unknown">Audio unknown</string>
     <string name="control_connected">Control connected</string>
-    <string name="control_data_only">Reading only</string>
     <string name="control_reconnecting">Control reconnecting</string>
     <string name="control_unavailable">Control unavailable</string>
     <string name="hero_active_last_known"> (last known)</string>
