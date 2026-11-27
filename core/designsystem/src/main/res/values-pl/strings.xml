@@ -67,6 +67,9 @@
     <string name="player_sleep_off">Wyłączony</string>
     <string name="player_sleep_min">%1$d min</string>
     <string name="player_sleep_left">Zatrzymanie i zamknięcie za %1$s</string>
+    <string name="sleep_custom_minutes">Własny czas, min</string>
+    <string name="sleep_custom_start">Start</string>
+    <string name="sleep_custom_invalid">Od 1 do %1$d minut</string>
     <string name="sleep_player_volume">Głośność odtwarzacza: %1$d%%</string>
     <string name="sleep_fade_toggle">Płynne ściszanie</string>
     <string name="sleep_fade_length">Czas ściszania</string>

@@ -68,6 +68,9 @@
     <string name="player_sleep_off">Off</string>
     <string name="player_sleep_min">%1$d min</string>
     <string name="player_sleep_left">Stops and closes in %1$s</string>
+    <string name="sleep_custom_minutes">Own time, min</string>
+    <string name="sleep_custom_start">Start</string>
+    <string name="sleep_custom_invalid">From 1 to %1$d minutes</string>
     <string name="sleep_player_volume">Player volume: %1$d%%</string>
     <string name="sleep_fade_toggle">Gradual volume fade</string>
     <string name="sleep_fade_length">Fade length</string>

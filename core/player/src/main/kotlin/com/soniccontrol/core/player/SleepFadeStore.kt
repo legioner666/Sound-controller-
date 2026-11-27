@@ -42,4 +42,38 @@ object SleepFadeStore {
     fun playerVolume(context: Context): Float { init(context); return (prefs?.getFloat(K_PLAYER_VOLUME, 1f) ?: 1f).coerceIn(0f, 1f) }
 
     fun savePlayerVolume(context: Context, v: Float) { init(context); prefs?.edit { putFloat(K_PLAYER_VOLUME, v.coerceIn(0f, 1f)) } }
+
+    // ---- running timer (survives the process being stopped while music is paused; not a reboot) ----------------------
+
+    private const val K_T_START = "timer_started_at"
+    private const val K_T_END = "timer_ends_at"
+    private const val K_T_TOTAL = "timer_total"
+    private const val K_T_ANCHOR_AT = "timer_anchor_at"
+    private const val K_T_ANCHOR_V = "timer_anchor_volume"
+    private const val K_T_BOOT = "timer_boot_count"
+
+    /** Android's boot counter (-1 when unavailable; then a reboot is still caught by the monotonic clock being behind). */
+    fun bootCount(context: Context): Int =
+        runCatching { android.provider.Settings.Global.getInt(context.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
+
+    fun saveTimer(context: Context, s: SleepTimerSnapshot?) {
+        init(context)
+        prefs?.edit(commit = true) {
+            if (s == null) listOf(K_T_START, K_T_END, K_T_TOTAL, K_T_ANCHOR_AT, K_T_ANCHOR_V, K_T_BOOT).forEach(::remove)
+            else {
+                putLong(K_T_START, s.startedAt); putLong(K_T_END, s.endsAt); putLong(K_T_TOTAL, s.totalMillis)
+                putLong(K_T_ANCHOR_AT, s.anchorAt); putFloat(K_T_ANCHOR_V, s.anchorVolume); putInt(K_T_BOOT, bootCount(context))
+            }
+        }
+    }
+
+    /** Saved timer and the boot it belongs to, or null. */
+    fun loadTimer(context: Context): Pair<SleepTimerSnapshot, Int>? {
+        init(context)
+        val p = prefs ?: return null
+        if (!p.contains(K_T_END)) return null
+        return SleepTimerSnapshot(
+            p.getLong(K_T_START, 0), p.getLong(K_T_END, 0), p.getLong(K_T_TOTAL, 0), p.getLong(K_T_ANCHOR_AT, 0), p.getFloat(K_T_ANCHOR_V, 1f),
+        ) to p.getInt(K_T_BOOT, Int.MIN_VALUE)
+    }
 }

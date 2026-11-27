@@ -1,5 +1,6 @@
 package com.soniccontrol.feature.player
 
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
@@ -8,7 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -18,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,6 +35,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.soniccontrol.core.designsystem.R
@@ -38,6 +46,7 @@ import com.soniccontrol.core.player.FadeCurve
 import com.soniccontrol.core.player.FadeLengthMode
 import com.soniccontrol.core.player.PlayerConnection
 import com.soniccontrol.core.player.SleepFadeSettings
+import com.soniccontrol.core.player.SleepTimer
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -50,9 +59,9 @@ import kotlin.math.roundToInt
 fun SleepTimerCard(player: PlayerConnection, title: String = stringResource(R.string.player_sleep)) {
     val st by player.state.collectAsStateWithLifecycle()
     val settings by player.fadeSettings.collectAsStateWithLifecycle()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val running = st.sleepRemainingMillis != null
-    LaunchedEffect(running) { while (running) { now = System.currentTimeMillis(); delay(1_000) } }
+    LaunchedEffect(running) { while (running) { now = SystemClock.elapsedRealtime(); delay(1_000) } }
 
     SonicCard(title = title) {
         val remaining = st.sleepRemainingMillis
@@ -66,7 +75,11 @@ fun SleepTimerCard(player: PlayerConnection, title: String = stringResource(R.st
             TIMER_CHOICES.forEach { m ->
                 FilterChip(selected = runningMinutes == m, onClick = { player.setSleepTimerMinutes(m) }, label = { Text(stringResource(R.string.player_sleep_min, m)) })
             }
+            if (runningMinutes != null && runningMinutes !in TIMER_CHOICES) {
+                FilterChip(selected = true, onClick = {}, label = { Text(stringResource(R.string.player_sleep_min, runningMinutes)) })
+            }
         }
+        CustomDuration { player.setSleepTimerMinutes(it) }
 
         // The player's own volume: where the fade starts from. Moving it during the fade re-plans the rest from the new level.
         var vol by remember(st.playerVolume) { mutableFloatStateOf(st.playerVolume) }
@@ -88,6 +101,25 @@ fun SleepTimerCard(player: PlayerConnection, title: String = stringResource(R.st
         FadeGraph(curve, nowAt = if (remaining != null) now else null)
 
         Text(stringResource(R.string.sleep_end_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Any length typed by hand, 1..720 min (SleepTimer.parseMinutes); invalid input is refused with a hint. */
+@Composable
+private fun CustomDuration(onStart: (Int) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    val parsed = SleepTimer.parseMinutes(text)
+    val invalid = text.isNotBlank() && parsed == null
+    val start = { parsed?.let { onStart(it); text = "" } }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = text, onValueChange = { v -> text = v.filter { it in '0'..'9' }.take(4) }, modifier = Modifier.weight(1f), singleLine = true,
+            label = { Text(stringResource(R.string.sleep_custom_minutes)) }, isError = invalid,
+            supportingText = if (invalid) { { Text(stringResource(R.string.sleep_custom_invalid, SleepTimer.MAX_MINUTES)) } } else null,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { start() }),
+        )
+        Button(onClick = { start() }, enabled = parsed != null) { Text(stringResource(R.string.sleep_custom_start)) }
     }
 }
 
@@ -168,4 +200,4 @@ private fun FadeGraph(curve: FadeCurve, nowAt: Long?) {
     }
 }
 
-private val TIMER_CHOICES = listOf(15, 30, 60, 120)
+private val TIMER_CHOICES = listOf(1, 5, 10, 15, 30, 60, 120)

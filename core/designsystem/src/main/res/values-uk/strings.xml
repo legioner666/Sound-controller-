@@ -67,6 +67,9 @@
     <string name="player_sleep_off">Вимкнено</string>
     <string name="player_sleep_min">%1$d хв</string>
     <string name="player_sleep_left">Зупинка і закриття через %1$s</string>
+    <string name="sleep_custom_minutes">Свій час, хв</string>
+    <string name="sleep_custom_start">Старт</string>
+    <string name="sleep_custom_invalid">Від 1 до %1$d хвилин</string>
     <string name="sleep_player_volume">Гучність плеєра: %1$d%%</string>
     <string name="sleep_fade_toggle">Плавне зменшення гучності</string>
     <string name="sleep_fade_length">Тривалість згасання</string>

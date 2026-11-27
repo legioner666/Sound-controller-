@@ -58,14 +58,17 @@ class SleepTimerTest {
         assertEquals("never negative, never restored upward", 0f, t.volume(), 0f)
     }
 
-    @Test fun volumeNeverRisesOnItsOwnAndAnExplicitNewTimerRestores() {
+    @Test fun volumeNeverRisesOnItsOwnAndOnlyACancelRestores() {
         t.set(20)
         var last = t.volume()
         repeat(1200) { now += 1_000L; val f = t.volume(); assertTrue("$f > $last", f <= last); last = f }
         assertEquals(0f, last, 0f)
-        t.set(20)                                   // explicit new timer = manual action
+        t.set(20)                                   // new duration for the running timer: no jump back up (audit of 2aae71c)
+        assertEquals(0f, t.volume(), 0f)
+        t.cancel(); assertEquals("cancel: back to the user's volume (the service ramps there over 1.5 s)", 1f, t.volume(), 0f)
+        t.set(20)                                   // a new timer after a cancel starts from the user's volume
         assertEquals(1f, t.volume(), 0f)
-        t.cancel(); assertEquals(1f, t.volume(), 0f)
+        t.cancel()
         assertNull(t.fadeStartDelayMillis())
     }
 

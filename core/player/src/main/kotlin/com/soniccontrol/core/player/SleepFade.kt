@@ -124,3 +124,37 @@ data class FadeCurve(
         }
     }
 }
+
+/** A running timer as saved to storage, in [android.os.SystemClock.elapsedRealtime] time of one boot. */
+data class SleepTimerSnapshot(val startedAt: Long, val endsAt: Long, val totalMillis: Long, val anchorAt: Long, val anchorVolume: Float) {
+    enum class Verdict { RESTORE, EXPIRED, DISCARD }
+
+    /**
+     * RESTORE: same boot and time left. EXPIRED: same boot, the end has passed while nothing ran. DISCARD: the phone was
+     * restarted (boot count differs, or the monotonic clock is behind the saved start) or the data is not sane.
+     */
+    fun check(now: Long, bootCount: Int, savedBootCount: Int): Verdict = when {
+        bootCount != savedBootCount || now < startedAt -> Verdict.DISCARD
+        totalMillis <= 0 || endsAt != startedAt + totalMillis || anchorAt < startedAt || anchorAt > endsAt -> Verdict.DISCARD
+        now >= endsAt -> Verdict.EXPIRED
+        else -> Verdict.RESTORE
+    }
+}
+
+/** Short smooth return to the user's volume when a timer is cancelled mid-fade (no sudden jump up). */
+data class VolumeRestore(val from: Float, val to: Float, val startAt: Long, val durationMillis: Long = DEFAULT_MILLIS) {
+    fun volumeAt(t: Long): Float {
+        if (durationMillis <= 0 || t >= startAt + durationMillis) return to
+        if (t <= startAt) return from
+        return from + (to - from) * (t - startAt).toFloat() / durationMillis
+    }
+    fun isDone(t: Long): Boolean = t >= startAt + durationMillis
+
+    companion object { const val DEFAULT_MILLIS = 1_500L }
+}
+
+/** Who may use the app's own session commands (sleep timer, Bass Boost): only Sonic Control itself. */
+object ControllerAccess {
+    fun isInternal(controllerUid: Int, controllerPackage: String, appUid: Int, appPackage: String): Boolean =
+        controllerUid == appUid && controllerPackage == appPackage
+}

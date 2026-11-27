@@ -7,7 +7,9 @@ package com.soniccontrol.core.player
  *    (5..100 %) or in minutes, down to a target between 0 and that volume; Android's system volume is never touched;
  *  - settings may change while the timer runs, and a manual volume change during the fade re-plans the rest from the new
  *    level — both without jumps (see [FadeCurve]);
- *  - the end is the end whatever the target volume: [consumeIfExpired] fires once and the service shuts everything down.
+ *  - the end is the end whatever the target volume: [consumeIfExpired] fires once and the service shuts everything down;
+ *  - [clock] is monotonic (SystemClock.elapsedRealtime in the app: counts deep sleep, ignores wall-clock changes);
+ *  - a running timer can be saved as a [SleepTimerSnapshot] and restored after the process was stopped.
  */
 class SleepTimer(private val clock: () -> Long, settings: SleepFadeSettings = SleepFadeSettings(), userVolume: Float = 1f) {
     private var startedAt = 0L
@@ -25,14 +27,26 @@ class SleepTimer(private val clock: () -> Long, settings: SleepFadeSettings = Sl
 
     val isRunning: Boolean get() = endsAt != null
 
-    /** Returns the delay to the end, or null when the timer was cancelled. Starts (again) from the user's volume. */
-    fun set(minutes: Int): Long? {
+    /**
+     * Starts or re-starts the timer; returns the delay to the end, or null when [minutes] <= 0 cancelled it.
+     * The plan starts from [currentLevel], the volume the player has right now: a new duration for a running (maybe already
+     * fading) timer never jumps back up to the starting volume. Without a timer that is simply the user's volume.
+     */
+    fun set(minutes: Int, currentLevel: Float = volume()): Long? {
         if (minutes <= 0) { cancel(); return null }
         val d = minutes.coerceAtMost(MAX_MINUTES) * 60_000L
         val now = clock()
         startedAt = now; totalMillis = d; endsAt = now + d
-        anchorAt = now; anchorVolume = userVolume
+        anchorAt = now; anchorVolume = currentLevel.coerceIn(0f, userVolume)
         return d
+    }
+
+    /** The running timer for saving, or null. */
+    fun snapshot(): SleepTimerSnapshot? = endsAt?.let { SleepTimerSnapshot(startedAt, it, totalMillis, anchorAt, anchorVolume) }
+
+    /** Puts a saved timer back (the caller checked it with [SleepTimerSnapshot.check]). */
+    fun restore(s: SleepTimerSnapshot) {
+        startedAt = s.startedAt; endsAt = s.endsAt; totalMillis = s.totalMillis; anchorAt = s.anchorAt; anchorVolume = s.anchorVolume.coerceIn(0f, 1f)
     }
 
     fun cancel() { endsAt = null; totalMillis = 0 }
@@ -77,6 +91,13 @@ class SleepTimer(private val clock: () -> Long, settings: SleepFadeSettings = Sl
 
     companion object {
         const val MAX_MINUTES = 12 * 60
+
+        /** Minutes typed by hand: digits only, 1..[MAX_MINUTES]; anything else is null (refused, nothing starts). */
+        fun parseMinutes(text: String): Int? {
+            val t = text.trim()
+            if (t.isEmpty() || t.length > 4 || !t.all { it in '0'..'9' }) return null
+            return t.toInt().takeIf { it in 1..MAX_MINUTES }
+        }
         /** Default fade: the last 10 % of the time (unchanged since before TASK 013). */
         const val FADE_FRACTION = SleepFadeSettings.DEFAULT_PERCENT / 100.0
     }

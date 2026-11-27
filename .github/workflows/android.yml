@@ -120,6 +120,27 @@ jobs:
           gh release create test-build out/* --prerelease --title "Sonic Control test build ${GITHUB_RUN_NUMBER}" --notes-file notes.md --target "${GITHUB_SHA}"
           gh release delete latest --yes --cleanup-tag || true
 
+      # Permanent release per build (tag build-N, never deleted): a plain APK with a link that keeps working, plus SHA-256.
+      # Same debug-signed test APK as above, so it stays a pre-release; stable releases come only from v* tags with the upload key.
+      - name: Publish permanent build release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_RUN_NUMBER}"
+          short=$(git rev-parse --short HEAD)
+          {
+            echo "TEST BUILD ${GITHUB_RUN_NUMBER} — signed with the public debug key; installs as \"Sonic Control debug\" (com.soniccontrol.debug)."
+            echo ""
+            echo "Direct APK: https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/SonicControl-test-${GITHUB_RUN_NUMBER}-${short}.apk"
+            echo "CI run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo ""
+            cat release-notes.md
+          } > build-notes.md
+          gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" --yes --cleanup-tag
+          gh release create "$tag" "out/SonicControl-test-${GITHUB_RUN_NUMBER}-${short}.apk" out/SHA256SUMS.txt \
+            --prerelease --latest=false --title "Sonic Control build ${GITHUB_RUN_NUMBER} (${short})" --notes-file build-notes.md --target "${GITHUB_SHA}"
+
       - name: Publish stable release
         if: env.IS_TAG == 'true'
         uses: softprops/action-gh-release@v2
