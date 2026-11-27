@@ -85,8 +85,11 @@ fun ObservationCard(tools: LabTools) {
             Button(onClick = { tools.finishExperiment() }) { Text(stringResource(R.string.lab_experiment_done)) }
         }
         experiments.filter { it.finished }.takeLast(10).asReversed().forEach { x ->
-            Text("#${x.id} ${sideLabel(x.side)} · ${tapLabel(x.tap)}: ${x.before?.let { noiseLabel(it) } ?: "?"} → ${x.after?.let { noiseLabel(it) } ?: "?"} (${x.observed.size})",
-                style = MaterialTheme.typography.bodySmall)
+            val path = if (x.path.size > 1) x.path.map { noiseLabel(it) } else listOf(x.before?.let { noiseLabel(it) } ?: "?", x.after?.let { noiseLabel(it) } ?: "?")
+            Text("#${x.id} ${sideLabel(x.side)} · ${tapLabel(x.tap)}: ${path.joinToString(" → ")}" +
+                (if (x.transitions > 1) " · " + stringResource(R.string.lab_multi_step) else "") +
+                " · " + stringResource(R.string.lab_touch_candidates, x.touchCandidates),
+                style = MaterialTheme.typography.bodySmall, color = if (x.transitions > 1) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface)
         }
         CycleAnalyzer.analyze(experiments).forEach { f ->
             val verdict = when (f.verdict) {

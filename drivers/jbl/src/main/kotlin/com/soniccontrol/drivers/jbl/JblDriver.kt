@@ -65,6 +65,8 @@ class JblDriver : HeadphoneDriver {
         return null
     }
 
+    override fun isTouchCandidate(frame: ByteArray): Boolean = JblHarman.isTouchCandidate(frame)
+
     override fun describeFrame(frame: ByteArray): String? = JblHarman.describe(frame)
         ?: JblProtocol.P4.validate(frame)?.let { "Protocol 4 cmd 0x%04x".format(it.command) }
         ?: JblProtocol.Race.validate(frame)?.let { "RACE cmd 0x%04x".format(it.command) }
@@ -394,6 +396,9 @@ internal class JblSession(
         if (read !is CommandOutcome.Confirmed) return read
         val before = JblHarman.parseGestureReport(read.response) ?: return CommandOutcome.Failed("touch controls report not understood")
         val other = if (side == EarSide.LEFT) EarSide.RIGHT else EarSide.LEFT
+        // An unknown combination on either earbud could never be put back (unknown combinations are never sent): no write.
+        if (before[EarSide.LEFT]?.layout == null || before[EarSide.RIGHT]?.layout == null)
+            return CommandOutcome.Failed("current touch controls are not a known layout on both earbuds; nothing was written")
         if (before[side]?.layout == layout) return read     // already set: nothing is written
         val w = exec.execute(JblCommands.gestureSet(side, layout))
         if (w is CommandOutcome.Rejected || w is CommandOutcome.NotConnected || w is CommandOutcome.Failed || w is CommandOutcome.Unsupported) return w

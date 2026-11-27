@@ -371,6 +371,10 @@ class SonicController(
                 if (r !is CommandOutcome.Confirmed) return@act r
                 if (!saveBackupIfMissing(s)) return@act CommandOutcome.Failed("could not save a backup of the current touch controls; nothing was changed")
             }
+            // Only write what could be restored: a backup or a current reading with an unknown combination blocks the write.
+            com.soniccontrol.core.devices.GestureWritePolicy.refusal(deviceKey()?.let { db.gestureBackups.value[it] }, s.state.value.gestures)?.let {
+                return@act CommandOutcome.Failed("touch controls not changed: $it")
+            }
             s.setGestureLayout(side, layout)
         }
 

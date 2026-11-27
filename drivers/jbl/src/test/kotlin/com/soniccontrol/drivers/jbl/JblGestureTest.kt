@@ -235,6 +235,27 @@ class JblGestureTest {
         assertFalse(r is CommandOutcome.Confirmed)
     }
 
+    @Test fun unknownInitialLayoutIsNeverOverwritten() = runTest(UnconfinedTestDispatcher()) {
+        // Audit of d6f29ed: a combination the app cannot restore must block every write, on either earbud.
+        val hs = Headset(left = "06 05 07 05 08 05 0c 05")
+        val ch = hs.transport()
+        val (s, _) = session(ch); s.start()
+        assertTrue(s.readGestures() is CommandOutcome.Confirmed)
+        assertNull(s.state.value.gestures?.left?.layout)
+        assertTrue(s.setGestureLayout(EarSide.RIGHT, GestureLayout.VOLUME) is CommandOutcome.Failed)
+        assertTrue(s.setGestureLayout(EarSide.LEFT, GestureLayout.PLAYBACK) is CommandOutcome.Failed)
+        assertTrue(ch.written.none { Hex.encode(it).startsWith("aa 77 09") })
+        assertEquals("06 05 07 05 08 05 0c 05", hs.left)
+    }
+
+    @Test fun touchCandidateIsLabelledButNeverAReport() {
+        val f = h("aa 23 03 01 02 03")
+        assertTrue(JblHarman.isTouchCandidate(f))
+        assertTrue(JblHarman.describe(f)!!.startsWith("candidate touch event"))
+        assertNull(JblProtocol.P3.validate(f))                    // never confirms the channel or the state
+        assertFalse(JblHarman.isTouchCandidate(h("aa 23 04 01 02 03 04")))
+    }
+
     @Test fun sameLayoutIsNotWrittenAgain() = runTest(UnconfinedTestDispatcher()) {
         val ch = Headset().transport()
         val (s, _) = session(ch); s.start()

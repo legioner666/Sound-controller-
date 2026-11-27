@@ -1,5 +1,10 @@
 # Журнал змін
 
+## 0.8.x (TASK 014, audit follow-up)
+- Gesture writes are blocked (controller + driver) when the current touch controls or the backup contain an unknown combination, so the original can always be restored; regression test: no `AA 77 09` is sent.
+- Lab experiments keep the full noise-mode path and count candidate touch frames; multi-step runs are shown separately and not used for the cycle verdict.
+- Field results (owner's Tune Beam 2, fw 0.2.8.0): ANC level 7 -> 1 confirmed by read-back; level query `AA 91 01 21` answers; unsolicited `AA 23 03 …` precedes tap-driven mode changes (candidate touch event; its 3 bytes are now exported, meaning unconfirmed).
+
 ## 0.8.x (TASK 014)
 - JBL Tune Beam 2 research (own captures + a published JBL-app capture of the same model + the JBL app's model profile + Fast Pair Hearable Controls): touch controls `AA 77` (read, and the 4 layouts per earbud the JBL app writes), the unknown mode-report slot is the ANC level, ANC/Ambient levels, read-only EQ preset / Smart Audio & Video / spatial sound / VoiceAware / limiter, passive Fast Pair ANC notify. Exact-frame allowlist only; Experimental; nothing ported from other models.
 - Gesture editor: model-specific layouts, automatic backup before the first change, one earbud at a time, confirmed only by reading both earbuds back, restore from backup; calls untouched. ANC/Ambient strength on the Noise screen.

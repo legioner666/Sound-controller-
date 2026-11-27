@@ -55,4 +55,32 @@ class LabTest {
         assertTrue(done.observed.any { it.type == LabEventType.FRAME })
         assertNull(r.finishExperiment(NoiseMode.OFF, 13))                  // nothing running
     }
+
+    @Test fun intermediateModesAreKeptAndMultiStepRunsAreNotACycleOrNoChange() {
+        // The owner's run #2 (lab package, build 20): ANC -> AMBIENT -> ANC within one experiment.
+        val r = LabRecorder()
+        r.startExperiment(EarSide.LEFT, TapType.SINGLE, NoiseMode.ANC, 0)
+        r.onFrame(1, "candidate touch event 0x23", "aa 23 03 01 02 03", touchCandidate = true)
+        r.onState(HeadphoneState("JBL", noise = NoiseStatus(NoiseMode.AMBIENT, DataSource.VENDOR_PROTOCOL, 2)), 2)
+        r.onFrame(3, "candidate touch event 0x23", "aa 23 03 01 02 03", touchCandidate = true)
+        r.onState(HeadphoneState("JBL", noise = NoiseStatus(NoiseMode.ANC, DataSource.VENDOR_PROTOCOL, 4)), 4)
+        val x = r.finishExperiment(NoiseMode.ANC, 5)!!
+        assertEquals(listOf(NoiseMode.ANC, NoiseMode.AMBIENT, NoiseMode.ANC), x.path)
+        assertEquals(2, x.transitions); assertEquals(2, x.touchCandidates)
+        val f = CycleAnalyzer.analyze(listOf(x(1, NoiseMode.OFF, NoiseMode.ANC), x, x(3, NoiseMode.AMBIENT, NoiseMode.ANC).copy(path = listOf(NoiseMode.AMBIENT, NoiseMode.ANC)))).single()
+        assertEquals(listOf(listOf(NoiseMode.ANC, NoiseMode.AMBIENT, NoiseMode.ANC)), f.multiStepPaths)
+        assertTrue(f.transitions.none { it.first == it.second })     // never recorded as ANC -> ANC
+        assertEquals(CycleFinding.Verdict.NOT_ENOUGH_DATA, f.verdict)
+    }
+
+    @Test fun gestureWritePolicy() {
+        val known = SideGestures(GestureLayout.AMBIENT_SOUND, emptyList(), "06 09 07 04 08 00 0c a1")
+        val unknown = SideGestures(null, emptyList(), "06 05 07 05 08 05 0c 05")
+        val ok = GestureState(known, known.copy(layout = GestureLayout.PLAYBACK), DataSource.VENDOR_NATIVE_EXPERIMENTAL, 1)
+        assertNull(GestureWritePolicy.refusal(null, ok))
+        assertEquals(GestureWritePolicy.Refusal.NOT_READ, GestureWritePolicy.refusal(null, null))
+        assertEquals(GestureWritePolicy.Refusal.UNKNOWN_CURRENT, GestureWritePolicy.refusal(null, ok.copy(left = unknown)))
+        val badBackup = GestureBackup(null, GestureLayout.PLAYBACK, unknown.rawHex, "09 08 0a 05 0b 06 0e a1", 1)
+        assertEquals(GestureWritePolicy.Refusal.UNRESTORABLE_BACKUP, GestureWritePolicy.refusal(badBackup, ok))
+    }
 }

@@ -73,3 +73,12 @@ class HciSnoopTest {
         assertTrue(HciSnoop.parse(c.bytes.toByteArray().inputStream()).values.isEmpty())
     }
 }
+
+/** TASK 014 follow-up: the JBL candidate touch event keeps its 3 bytes in the export; longer AA 23 frames do not. */
+class TouchCandidateExportTest {
+    private val r = Redactor("salt", emptyList(), emptyList())
+    @Test fun aa23ShortIsExported() {
+        assertEquals("aa 23 03 01 02 03", HexPolicy.export("harman", "aa 23 03 01 02 03", r))
+        assertEquals("<aa cmd=0x23 length=6>", HexPolicy.export("harman", "aa 23 06 01 02 03 04 05 06", r))
+    }
+}

@@ -70,6 +70,10 @@ fun GesturesScreen(controller: HeadphoneController, experimentalEnabled: StateFl
             }
         }
         if (support != null && experimental) {
+            val refusal = com.soniccontrol.core.devices.GestureWritePolicy.refusal(backup, h.gestures)
+            if (refusal != null && refusal != com.soniccontrol.core.devices.GestureWritePolicy.Refusal.NOT_READ) item {
+                Banner(stringResource(R.string.gestures_write_blocked), BannerKind.WARNING)
+            }
             for (side in EarSide.entries) item {
                 val current = h.gestures?.side(side)
                 SonicCard(title = sideLabel(side)) {
@@ -79,7 +83,7 @@ fun GesturesScreen(controller: HeadphoneController, experimentalEnabled: StateFl
                         support.layouts.forEach { l ->
                             FilterChip(
                                 selected = current?.layout == l,
-                                enabled = h.gestures != null && !h.busy,
+                                enabled = refusal == null && !h.busy,
                                 onClick = { if (current?.layout != l) controller.setGestureLayout(side, l) },
                                 label = { Text(layoutLabel(l)) },
                             )

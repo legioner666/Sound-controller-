@@ -555,4 +555,7 @@
     <string name="lab_package_title">Тестовий пакет для аналізу</string>
     <string name="lab_package_body">Один JSON-файл із моделлю, можливостями, налаштуваннями, експериментами, аналізом циклу, хронологією, імпортом HCI та журналом автоматизації. Без Bluetooth-адрес; байти кадрів лише для декодованих звітів без ідентифікаторів.</string>
     <string name="lab_package_make">Підготувати тестовий пакет</string>
+    <string name="gestures_write_blocked">Поточні жести (або збережена копія) містять невідому застосунку комбінацію. Зміни заблоковано, щоб початковий набір завжди можна було повернути.</string>
+    <string name="lab_multi_step">кілька змін режиму (не враховано для циклу)</string>
+    <string name="lab_touch_candidates">кадрів 0x23: %1$d</string>
 </resources>

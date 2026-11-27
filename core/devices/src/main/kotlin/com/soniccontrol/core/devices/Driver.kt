@@ -134,6 +134,9 @@ interface HeadphoneDriver {
 
     /** Short technical label for a received frame (Lab timeline, HCI import), or null when it is not this driver's protocol. */
     fun describeFrame(frame: ByteArray): String? = null
+
+    /** True for frames that may be touch events of this protocol (meaning not confirmed): counted in Lab experiments only. */
+    fun isTouchCandidate(frame: ByteArray): Boolean = false
 }
 
 class DriverRegistry(private val drivers: List<HeadphoneDriver>, val fallback: HeadphoneDriver) {

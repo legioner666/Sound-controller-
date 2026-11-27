@@ -556,4 +556,7 @@
     <string name="lab_package_title">Test package for analysis</string>
     <string name="lab_package_body">One JSON file with the model, capabilities, settings, experiments, cycle analysis, timeline, HCI import and automation log. No Bluetooth addresses; frame bytes only for decoded, non-identifying reports.</string>
     <string name="lab_package_make">Prepare test package</string>
+    <string name="gestures_write_blocked">The current touch controls (or the saved backup) contain a combination the app does not know. Changes are blocked so that the original can always be put back.</string>
+    <string name="lab_multi_step">several mode changes (not used for the cycle)</string>
+    <string name="lab_touch_candidates">0x23 frames: %1$d</string>
 </resources>

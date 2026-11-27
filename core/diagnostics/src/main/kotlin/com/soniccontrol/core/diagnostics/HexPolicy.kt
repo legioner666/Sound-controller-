@@ -51,6 +51,8 @@ object HexPolicy {
                 b[2] != b.size - 3 -> "<aa cmd=0x${cmd.toString(16)} length=${b.size - 3}>"
                 cmd in AA_ALLOWED_CMDS && validAaPayload(cmd, b.subList(3, b.size)) -> null
                 cmd == 0x25 && b.size <= 8 -> null
+                // TASK 014: JBL candidate touch event, exactly 3 payload bytes (too short to carry an identifier).
+                cmd == 0x23 && b.size == 6 -> null
                 else -> "<aa cmd=0x${cmd.toString(16)} length=${b.size - 3}>"
             }
         }

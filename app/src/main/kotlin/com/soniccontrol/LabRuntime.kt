@@ -66,7 +66,7 @@ class LabRuntime(
                     if (e.category == EventCategory.RX && e.hex != null) {
                         val bytes = runCatching { Hex.decode(e.hex!!) }.getOrNull() ?: continue
                         val label = describe(bytes) ?: e.message
-                        recorder.onFrame(e.timestampMillis, label, e.hex)
+                        recorder.onFrame(e.timestampMillis, label, e.hex, touchCandidate = registry.all.any { it.isTouchCandidate(bytes) })
                     }
                 }
                 lastSeen = list.lastOrNull()
@@ -131,12 +131,13 @@ class LabRuntime(
             "settings" to h?.settings?.values?.associate { it.setting.name to mapOf("value" to it.value, "source" to it.source.name, "raw" to it.raw) },
             "experiments" to experiments.map { x ->
                 linkedMapOf("id" to x.id, "side" to x.side.name, "tap" to x.tap.name, "before" to x.before?.name, "after" to x.after?.name,
+                    "path" to x.path.map { it.name }, "modeChanges" to x.transitions, "touchCandidates" to x.touchCandidates,
                     "durationMs" to x.endedAt?.let { it - x.startedAt },
                     "observed" to x.observed.map { e -> mapOf("dtMs" to e.atMillis - x.startedAt, "type" to e.type.name, "summary" to e.summary, "hex" to e.hex?.let { hx -> safeHex(e.summary, hx) }) })
             },
             "cycleAnalysis" to CycleAnalyzer.analyze(experiments).map { f ->
                 mapOf("side" to f.side.name, "tap" to f.tap.name, "runs" to f.runs, "verdict" to f.verdict.name, "cycle" to f.cycle?.map { it.name },
-                    "transitions" to f.transitions.map { "${it.first}->${it.second}" })
+                    "transitions" to f.transitions.map { "${it.first}->${it.second}" }, "multiStepPaths" to f.multiStepPaths.map { p -> p.joinToString("->") })
             },
             "timeline" to recorder.timeline.value.takeLast(300).map { e -> mapOf("t" to e.atMillis, "type" to e.type.name, "summary" to e.summary, "hex" to e.hex?.let { hx -> safeHex(e.summary, hx) }) },
             "hciImport" to _hci.value?.let { i ->

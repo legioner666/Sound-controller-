@@ -555,4 +555,7 @@
     <string name="lab_package_title">Pakiet testowy do analizy</string>
     <string name="lab_package_body">Jeden plik JSON z modelem, możliwościami, ustawieniami, eksperymentami, analizą cyklu, osią czasu, importem HCI i dziennikiem automatyzacji. Bez adresów Bluetooth; bajty ramek tylko dla odczytanych raportów bez identyfikatorów.</string>
     <string name="lab_package_make">Przygotuj pakiet testowy</string>
+    <string name="gestures_write_blocked">Bieżące gesty (lub zapisana kopia) zawierają kombinację nieznaną aplikacji. Zmiany są zablokowane, aby zawsze można było przywrócić oryginał.</string>
+    <string name="lab_multi_step">kilka zmian trybu (nieużyte do cyklu)</string>
+    <string name="lab_touch_candidates">ramki 0x23: %1$d</string>
 </resources>

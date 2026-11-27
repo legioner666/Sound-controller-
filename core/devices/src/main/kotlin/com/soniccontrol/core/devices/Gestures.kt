@@ -63,3 +63,19 @@ data class GestureBackup(val left: GestureLayout?, val right: GestureLayout?, va
             if (g.left == null || g.right == null) null else GestureBackup(g.left.layout, g.right.layout, g.left.rawHex, g.right.rawHex, now)
     }
 }
+
+/**
+ * When the app may write touch controls at all (audit of d6f29ed): only if what is on the headset now could be put back.
+ * A backup with an unknown combination, or a current reading with one, blocks every write: the app never sends unknown
+ * combinations, so it could not restore them.
+ */
+object GestureWritePolicy {
+    enum class Refusal { NOT_READ, UNKNOWN_CURRENT, UNRESTORABLE_BACKUP }
+
+    fun refusal(backup: GestureBackup?, current: GestureState?): Refusal? = when {
+        current == null || current.left == null || current.right == null -> Refusal.NOT_READ
+        current.left.layout == null || current.right.layout == null -> Refusal.UNKNOWN_CURRENT
+        backup != null && !backup.restorable -> Refusal.UNRESTORABLE_BACKUP
+        else -> null
+    }
+}

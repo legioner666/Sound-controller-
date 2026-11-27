@@ -192,12 +192,22 @@ object JblHarman {
         return EQ_PRESETS[f.payload.u8(1)]
     }
 
+    // ------------------------------------------------------------------ candidate touch event (AA 23), observation only
+
+    /**
+     * `AA 23 03 <3 bytes>`: unsolicited, not in any source. On the owner's Tune Beam 2 (fw 0.2.8.0, diagnostics #7) it arrived
+     * 0.4–0.6 s before every tap-driven mode change and once without one. Meaning of the 3 bytes NOT established: it is only
+     * labelled and counted in the Lab; it never triggers anything and never confirms the control channel.
+     */
+    fun isTouchCandidate(frame: ByteArray): Boolean = frame.size == 6 && frame.u8(0) == 0xAA && frame.u8(1) == 0x23 && frame.u8(2) == 3
+
     // ------------------------------------------------------------------ frame labels for the Lab
 
     /** Short technical label of an H-AA frame (Lab timeline, HCI import). Never claims more than the decoders do. */
     fun describe(frame: ByteArray): String? {
         if (frame.size < 3 || frame.u8(0) != 0xAA) return null
         JblProtocol.P3.errorReplyFor(frame)?.let { return "error reply for 0x%02x".format(it) }
+        if (isTouchCandidate(frame)) return "candidate touch event 0x23 (meaning unconfirmed)"
         parseGestureReport(frame)?.let { m -> return "touch controls report: " + m.entries.joinToString { "${it.key} ${it.value.layout ?: "unknown"}" } }
         if (isGestureEcho(frame)) return "touch controls write (echo)"
         parseLevelReport(frame)?.let { return "levels report: $it" }

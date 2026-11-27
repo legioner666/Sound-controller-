@@ -20,8 +20,14 @@ data class GestureExperiment(
     val after: NoiseMode? = null,
     /** Frames and state changes that arrived between the two readings. */
     val observed: List<LabEvent> = emptyList(),
+    /** Every noise mode seen during the run, in order, starting with [before]: ANC -> AMBIENT -> ANC keeps the middle step. */
+    val path: List<NoiseMode> = listOfNotNull(before),
+    /** Frames the driver marks as candidate touch events (unconfirmed meaning), counted during the run. */
+    val touchCandidates: Int = 0,
 ) {
     val finished: Boolean get() = endedAt != null
+    /** Mode changes seen during the run. More than one means several taps (or another cause): not used to infer the cycle. */
+    val transitions: Int get() = path.zipWithNext().count { (a, b) -> a != b }
 }
 
 /** What the experiments say about one gesture (side + tap). */
@@ -29,8 +35,10 @@ data class CycleFinding(
     val side: EarSide,
     val tap: TapType,
     val runs: Int,
-    /** before -> after pairs seen, in order of appearance. */
+    /** before -> after pairs of the runs used for the analysis (at most one mode change each), in order of appearance. */
     val transitions: List<Pair<NoiseMode, NoiseMode>>,
+    /** Full paths of runs with several mode changes: shown, never used to claim a cycle. */
+    val multiStepPaths: List<List<NoiseMode>> = emptyList(),
     /** The cycle order when every observed state always led to the same next state, e.g. [ANC, AMBIENT]. Null otherwise. */
     val cycle: List<NoiseMode>?,
     val verdict: Verdict,
@@ -42,7 +50,9 @@ object CycleAnalyzer {
     /** Needs at least [minRuns] finished runs with both readings; a cycle is only claimed when it is closed and consistent. */
     fun analyze(experiments: List<GestureExperiment>, minRuns: Int = 3): List<CycleFinding> =
         experiments.filter { it.finished }.groupBy { it.side to it.tap }.map { (key, runs) ->
-            val pairs = runs.mapNotNull { r -> if (r.before != null && r.after != null) r.before to r.after else null }
+            val single = runs.filter { it.transitions <= 1 }
+            val multi = runs.filter { it.transitions > 1 }.map { it.path }
+            val pairs = single.mapNotNull { r -> if (r.before != null && r.after != null) r.before to r.after else null }
             val next = HashMap<NoiseMode, MutableSet<NoiseMode>>()
             pairs.forEach { (a, b) -> next.getOrPut(a) { LinkedHashSet() } += b }
             val verdict: CycleFinding.Verdict
@@ -65,7 +75,7 @@ object CycleAnalyzer {
                     verdict = if (cycle != null) CycleFinding.Verdict.CYCLE else CycleFinding.Verdict.NOT_ENOUGH_DATA
                 }
             }
-            CycleFinding(key.first, key.second, runs.size, pairs, cycle, verdict)
+            CycleFinding(key.first, key.second, runs.size, pairs, multiStepPaths = multi, cycle = cycle, verdict = verdict)
         }
 }
 
@@ -103,9 +113,14 @@ class LabRecorder(private val capacity: Int = 500) {
         last = state
         if (state == null) { if (old != null) add(LabEvent(now, LabEventType.CONNECTION, "disconnected")); return }
         diff(old, state).forEach { (t, s) -> add(LabEvent(now, t, s)) }
+        val mode = state.noise?.mode
+        running()?.let { r -> if (mode != null && r.path.lastOrNull() != mode) replace(r.copy(path = r.path + mode)) }
     }
 
-    fun onFrame(now: Long, label: String, hex: String?) = add(LabEvent(now, LabEventType.FRAME, label, hex))
+    fun onFrame(now: Long, label: String, hex: String?, touchCandidate: Boolean = false) {
+        add(LabEvent(now, LabEventType.FRAME, label, hex))
+        if (touchCandidate) running()?.let { replace(it.copy(touchCandidates = it.touchCandidates + 1)) }
+    }
 
     fun startExperiment(side: EarSide, tap: TapType, before: NoiseMode?, now: Long): GestureExperiment {
         running()?.let { replace(it.copy(endedAt = now)) }
@@ -118,7 +133,9 @@ class LabRecorder(private val capacity: Int = 500) {
     fun finishExperiment(after: NoiseMode?, now: Long): GestureExperiment? {
         val r = running() ?: return null
         add(LabEvent(now, LabEventType.EXPERIMENT, "end #${r.id}: after=${after ?: "unknown"}"))
-        val done = (running() ?: r).copy(endedAt = now, after = after)
+        val cur = running() ?: r
+        val path = if (after != null && cur.path.lastOrNull() != after) cur.path + after else cur.path
+        val done = cur.copy(endedAt = now, after = after, path = path)
         replace(done)
         return done
     }
