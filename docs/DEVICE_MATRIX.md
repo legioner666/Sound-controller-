@@ -7,6 +7,7 @@
 |---|---|---|---|---|---|---|
 | **JBL Tune Beam 3** | — | визначається в Lab | S (Fast Pair/BAS) | E | E | — |
 | JBL H-AA | Tune 230NC, Wave Buds 2, Tune Beam (1), Tune Beam 2, Live Beam 3, Tour Pro 2 та ін. (28) | H-AA | S | S | S | — |
+| JBL Tune Beam 2 (B484FB) | TASK 014 | H-AA `AA 77`/`AA A2`/`AA 06`/`AA 80` | S | S | S + рівні E | жести E (4 розкладки, читання/запис з перевіркою), EQ — лише читання; див. JBL_GESTURE_PROTOCOL.md |
 | JBL Airoha | Tour Pro 3 | RACE | S | — | S | — |
 | JBL Airoha | Live Buds 3, Live Free 2, Reflect Aero, Tune 670/770NC, Endurance Race 2, Wave/Vibe Beam 2 | RACE | S | — | E | — |
 | JBL Protocol 4 | Tune 780NC | P4 (читання) | S | E | — | — |

@@ -55,7 +55,10 @@ object JblProtocol {
         const val CMD_NOTIFY_CONTROL = 0x9B
         /** Observed reply `AA EE 01 <command>` to commands this model does not answer normally. Meaning not established. */
         const val CMD_ERROR_REPLY = 0xEE
-        /** Listening-mode report slot 4 (seen as `04 07`): its meaning is unknown and it is never interpreted. */
+        /**
+         * Listening-mode report slot 4 (seen as `04 07`). TASK 014: a second, independent Tune Beam 2 capture shows it is the
+         * ANC level (1..7, see [JblHarman.ancLevelInModeReport]). It never changes how the mode itself is decoded.
+         */
         const val SLOT_UNKNOWN = 4
         const val OP_SET = 0x10
         const val OP_GET = 0x11
@@ -79,7 +82,9 @@ object JblProtocol {
         fun expectedLength(buf: ByteArray): Int? {
             if (buf.size < 3) return null
             return if (buf.u8(1) in LONG_LENGTH) {
-                if (buf.size < 4) null else 4 + buf.u16le(2)
+                // Long frames are never above 255 bytes over this GATT link; a non-zero high byte means a short frame of the same
+                // command (e.g. a query `AA A2 02 01 FF` echoed back), which would otherwise stall the stream waiting for 258 bytes.
+                if (buf.size < 4) null else if (buf.u8(3) != 0) 3 + buf.u8(2) else 4 + buf.u16le(2)
             } else {
                 3 + buf.u8(2)
             }
@@ -89,7 +94,7 @@ object JblProtocol {
             if (bytes.size < 3 || bytes.u8(0) != HEADER) return null
             val expected = expectedLength(bytes) ?: return null
             if (bytes.size != expected) return null
-            val start = if (bytes.u8(1) in LONG_LENGTH) 4 else 3
+            val start = if (bytes.u8(1) in LONG_LENGTH && bytes.u8(3) == 0) 4 else 3
             return Frame(bytes.u8(1), bytes.copyOfRange(start, bytes.size))
         }
 
@@ -153,9 +158,14 @@ object JblProtocol {
             val ok = when (f.command) {
                 CMD_VERSION_REPLY -> f.payload.isNotEmpty()
                 CMD_BATTERY -> isBatteryReport(f) && f.payload.size >= 7
-                CMD_LISTENING_MODE -> isListeningModeReport(f) && f.payload.size >= 7 && f.payload.size % 2 == 1 && listeningPairsValid(f)
+                CMD_LISTENING_MODE -> (isListeningModeReport(f) && f.payload.size >= 7 && f.payload.size % 2 == 1 && listeningPairsValid(f)) ||
+                    JblHarman.parseLevelReport(bytes) != null
                 CMD_NOTIFY_CONTROL -> isNotifyAck(f)
-                CMD_NATIVE -> f.payload.size >= 2          // envelope only; a body is interpreted solely by parseNativeBattery
+                CMD_NATIVE -> f.payload.size >= 2          // envelope only; a body is interpreted solely by the strict decoders
+                // TASK 014 (Tune Beam 2 family): structure-checked reports only.
+                JblHarman.CMD_GESTURE -> JblHarman.parseGestureReport(bytes) != null || JblHarman.isGestureEcho(bytes)
+                0x80 -> bytes.size == 12 && f.payload.u8(0) == 0x02
+                0xA2 -> f.payload.size == 0x74 && f.payload.u8(0) == 0x04
                 else -> false
             }
             return if (ok) f else null

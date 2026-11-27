@@ -88,7 +88,7 @@ dependencies {
         ":drivers:apple", ":drivers:nothing", ":drivers:xiaomi",
         ":feature:dashboard", ":feature:devices", ":feature:equalizer", ":feature:noisecontrol", ":feature:gestures",
         ":feature:automation", ":feature:battery", ":feature:diagnostics", ":feature:settings",
-        ":core:musiclibrary", ":core:player", ":core:background", ":feature:player",
+        ":core:musiclibrary", ":core:player", ":core:background", ":feature:player", ":core:automation",
     ).forEach { implementation(project(it)) }
 
     implementation(libs.androidx.core.ktx)

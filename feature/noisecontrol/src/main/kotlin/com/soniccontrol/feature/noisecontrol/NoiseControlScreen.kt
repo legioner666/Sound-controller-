@@ -54,7 +54,8 @@ fun NoiseControlScreen(controller: HeadphoneController, experimentalEnabled: Sta
     val active by controller.active.collectAsStateWithLifecycle()
     val experimental by experimentalEnabled.collectAsStateWithLifecycle()
     var last by remember { mutableStateOf<ActionResult?>(null) }
-    LaunchedEffect(Unit) { controller.results.collect { if (it.action.startsWith("noise")) last = it } }
+    var lastLevel by remember { mutableStateOf<ActionResult?>(null) }
+    LaunchedEffect(Unit) { controller.results.collect { if (it.action.startsWith("noise")) last = it; if (it.action.startsWith("level")) lastLevel = it } }
 
     SonicScreen(title = stringResource(R.string.noise_title), subtitle = stringResource(R.string.noise_subtitle)) {
         val device = active
@@ -86,6 +87,25 @@ fun NoiseControlScreen(controller: HeadphoneController, experimentalEnabled: Sta
                     }
                 }
                 last?.let { Text(outcomeLabel(it.outcome), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            }
+        }
+        // TASK 014: strength of ANC / Ambient Aware, only where the model profile has it; every change is read back.
+        val levels = device.headphone.noiseLevelSupport
+        if (levels != null && experimental) item {
+            SonicCard(title = stringResource(R.string.noise_levels_title), trailing = { StatusBadge(levels.status) }) {
+                for (kind in listOf(com.soniccontrol.core.devices.NoiseLevelKind.ANC, com.soniccontrol.core.devices.NoiseLevelKind.AMBIENT).filter { it in levels.kinds }) {
+                    val setting = if (kind == com.soniccontrol.core.devices.NoiseLevelKind.ANC) com.soniccontrol.core.devices.DeviceSetting.ANC_LEVEL else com.soniccontrol.core.devices.DeviceSetting.AMBIENT_LEVEL
+                    val reported = device.headphone.settings[setting]?.value?.toIntOrNull()
+                    var value by remember(reported) { androidx.compose.runtime.mutableFloatStateOf((reported ?: levels.maxLevel).toFloat()) }
+                    Text(stringResource(if (kind == com.soniccontrol.core.devices.NoiseLevelKind.ANC) R.string.noise_level_anc else R.string.noise_level_ambient,
+                        reported?.toString() ?: stringResource(R.string.noise_level_unknown)), style = MaterialTheme.typography.bodyMedium)
+                    androidx.compose.material3.Slider(
+                        value = value, onValueChange = { value = it }, valueRange = 1f..levels.maxLevel.toFloat(), steps = levels.maxLevel - 2,
+                        onValueChangeFinished = { val v = Math.round(value); if (v != reported) controller.setNoiseLevel(kind, v) },
+                    )
+                }
+                Text(stringResource(R.string.noise_levels_note), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                lastLevel?.let { Text(outcomeLabel(it.outcome), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             }
         }
         if (support.status == SupportStatus.EXPERIMENTAL) {

@@ -117,6 +117,16 @@ interface HeadphoneController {
     fun disconnect()
     fun refresh()
     fun setNoiseMode(mode: NoiseMode)
+
+    /** TASK 014. Results arrive on [results]; the state shows only what the headset reported. */
+    fun readGestures() {}
+    /** Saves a backup first (reading the headset if needed), then changes one earbud; see [DriverSession.setGestureLayout]. */
+    fun setGestureLayout(side: EarSide, layout: GestureLayout) {}
+    /** Backup of the connected headset's touch controls, or null. */
+    val gestureBackup: StateFlow<GestureBackup?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun restoreGestureBackup() {}
+    fun setNoiseLevel(kind: NoiseLevelKind, level: Int) {}
+    fun readSettings() {}
 }
 
 /** Read-only GATT inspection for the Lab. */

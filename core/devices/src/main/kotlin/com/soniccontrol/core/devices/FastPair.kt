@@ -25,6 +25,25 @@ object FastPair {
 
     fun isAllowedWrite(frame: ByteArray): Boolean = frame.contentEquals(ACTIVE_COMPONENTS_REQUEST)
 
+    /** Hearable controls (TASK 014): group 0x08, code 0x13 "Notify ANC state". Listened to only; Set needs a MAC we never have. */
+    const val GROUP_HEARABLE = 0x08
+    const val CODE_NOTIFY_ANC = 0x13
+
+    /** Bit layout of the ANC control data bytes (MSB first): transparent, adaptive, off, reserved, ANC. */
+    data class HearableAnc(val supported: Set<String>, val settable: Set<String>, val current: String)
+
+    private val ANC_BITS = listOf(0x80 to "transparent", 0x40 to "adaptive", 0x20 to "off", 0x08 to "anc")
+
+    /** Strict: version 2, 4 bytes, exactly one current bit, no undefined bits (reserved bit 3 and bits 5..7). */
+    fun parseHearableAnc(m: Message): HearableAnc? {
+        if (m.group != GROUP_HEARABLE || m.code != CODE_NOTIFY_ANC || m.payload.size != 4 || (m.payload[0].toInt() and 0xFF) != 0x02) return null
+        fun flags(b: Int): Set<String>? = if (b and 0x17 != 0) null else ANC_BITS.filter { b and it.first != 0 }.map { it.second }.toSet()
+        val supported = flags(m.payload[1].toInt() and 0xFF) ?: return null
+        val settable = flags(m.payload[2].toInt() and 0xFF) ?: return null
+        val cur = flags(m.payload[3].toInt() and 0xFF)?.singleOrNull() ?: return null
+        return HearableAnc(supported, settable, cur)
+    }
+
     data class Message(val group: Int, val code: Int, val payload: ByteArray) {
         override fun equals(other: Any?) =
             other is Message && group == other.group && code == other.code && payload.contentEquals(other.payload)
@@ -144,6 +163,7 @@ sealed interface FastPairEvent {
     data class RemainingMinutes(val minutes: Int) : FastPairEvent
     data class Active(val components: ActiveComponents) : FastPairEvent
     data class Firmware(val version: String) : FastPairEvent
+    data class HearableAncState(val anc: FastPair.HearableAnc) : FastPairEvent
     data class Unknown(val group: Int, val code: Int) : FastPairEvent
 }
 
@@ -156,6 +176,8 @@ class FastPairSession(private val clock: () -> Long) {
     fun onFrame(frame: ByteArray): FastPairEvent? {
         val m = FastPair.parse(frame) ?: return null
         val event: FastPairEvent? = when {
+            m.group == FastPair.GROUP_HEARABLE && m.code == FastPair.CODE_NOTIFY_ANC ->
+                FastPair.parseHearableAnc(m)?.let { FastPairEvent.HearableAncState(it) } ?: FastPairEvent.Unknown(m.group, m.code)
             m.group != FastPair.GROUP_DEVICE_INFO -> FastPairEvent.Unknown(m.group, m.code)
             else -> when (m.code) {
                 FastPair.CODE_MODEL_ID -> FastPair.parseModelId(m)?.let { FastPairEvent.ModelId(it) }
@@ -167,7 +189,7 @@ class FastPairSession(private val clock: () -> Long) {
                 else -> FastPairEvent.Unknown(m.group, m.code)
             }
         }
-        if (event != null && event !is FastPairEvent.Unknown) capabilities = FastPairCapabilities(capabilities.codes + m.code)
+        if (event != null && event !is FastPairEvent.Unknown && event !is FastPairEvent.HearableAncState) capabilities = FastPairCapabilities(capabilities.codes + m.code)
         return event
     }
 }

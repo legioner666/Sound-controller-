@@ -326,7 +326,67 @@ class SonicController(
     }
 
     override fun refresh() = act("refresh") { it.refresh() }
-    override fun setNoiseMode(mode: NoiseMode) = act("noise:${mode.name}") { it.setNoiseMode(mode) }
+
+    /** The user switched the mode in the app: automation must not change it back (TASK 014, manual priority). */
+    private val _manualNoise = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val manualNoise: kotlinx.coroutines.flow.SharedFlow<Unit> = _manualNoise
+
+    override fun setNoiseMode(mode: NoiseMode) { _manualNoise.tryEmit(Unit); act("noise:${mode.name}") { it.setNoiseMode(mode) } }
+
+    /** Automation path: same driver command, awaited, and not counted as a manual change. */
+    suspend fun setNoiseModeForAutomation(mode: NoiseMode): CommandOutcome =
+        runCatching { sessions.withSession { it.setNoiseMode(mode) } }.getOrNull() ?: CommandOutcome.NotConnected
+
+    /** Lab: an awaited read-only refresh (mode GET etc.) for gesture experiments. */
+    suspend fun refreshAwait(): CommandOutcome = runCatching { sessions.withSession { it.refresh() } }.getOrNull() ?: CommandOutcome.NotConnected
+
+    // ---------------- TASK 014: touch controls, levels, settings ----------------
+
+    private fun deviceKey(): String? = active.value?.identity?.address
+
+    override val gestureBackup: StateFlow<com.soniccontrol.core.devices.GestureBackup?> =
+        kotlinx.coroutines.flow.combine(db.gestureBackups, active) { m, a -> a?.identity?.address?.let { m[it] } }
+            .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    override fun readGestures() = act("gestures:read") { s ->
+        val r = s.readGestures()
+        // The first successful reading of a headset becomes its backup (never overwritten by later changes).
+        if (r is CommandOutcome.Confirmed) saveBackupIfMissing(s)
+        r
+    }
+
+    private suspend fun saveBackupIfMissing(s: DriverSession): Boolean {
+        val key = deviceKey() ?: return false
+        if (db.gestureBackups.value[key] != null) return true
+        val b = s.state.value.gestures?.let { com.soniccontrol.core.devices.GestureBackup.from(it, clock()) } ?: return false
+        db.saveGestureBackup(key, b)
+        return true
+    }
+
+    /** Backup first, then one earbud: read -> backup -> change one side -> read back -> confirmed or failed. */
+    override fun setGestureLayout(side: com.soniccontrol.core.devices.EarSide, layout: com.soniccontrol.core.devices.GestureLayout) =
+        act("gestures:${side.name}:${layout.name}") { s ->
+            if (deviceKey()?.let { db.gestureBackups.value[it] } == null) {
+                val r = s.readGestures()
+                if (r !is CommandOutcome.Confirmed) return@act r
+                if (!saveBackupIfMissing(s)) return@act CommandOutcome.Failed("could not save a backup of the current touch controls; nothing was changed")
+            }
+            s.setGestureLayout(side, layout)
+        }
+
+    override fun restoreGestureBackup() = act("gestures:restore") { s ->
+        val b = deviceKey()?.let { db.gestureBackups.value[it] } ?: return@act CommandOutcome.Failed("no backup for this headset")
+        if (!b.restorable) return@act CommandOutcome.Failed("the backup contains an unknown layout; it is never sent")
+        var last: CommandOutcome = CommandOutcome.Failed("nothing restored")
+        for (side in com.soniccontrol.core.devices.EarSide.entries) {
+            last = s.setGestureLayout(side, b.layout(side)!!)
+            if (last !is CommandOutcome.Confirmed) return@act last
+        }
+        last
+    }
+
+    override fun setNoiseLevel(kind: com.soniccontrol.core.devices.NoiseLevelKind, level: Int) = act("level:${kind.name}:$level") { it.setNoiseLevel(kind, level) }
+    override fun readSettings() = act("settings:read") { it.readSettings() }
 
     // ---------------- LabController ----------------
 

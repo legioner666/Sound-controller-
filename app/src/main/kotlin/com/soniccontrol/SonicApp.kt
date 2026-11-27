@@ -45,9 +45,14 @@ class AppContainer(app: Application) {
     val library = LibraryController(app, scope)
     val player = PlayerConnection(app)
     val backgroundMonitoring = BackgroundMonitoring(app, scope, db, controller)
+    /** TASK 014: rules engine and Lab tools; both only use the existing sessions (no extra Bluetooth connections). */
+    val automation = AutomationRuntime(scope, controller, player, db)
+    val lab = LabRuntime(scope, controller, log, registry, automation, BuildConfig.VERSION_NAME)
 
     init {
         backgroundMonitoring.start()
+        automation.start()
+        lab.start()
         // Sleep timer ended: stop Bluetooth sessions and the device service; nothing restarts until the app is opened by hand.
         scope.launch {
             com.soniccontrol.core.background.AppShutdown.suppressed.collect { off ->

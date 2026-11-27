@@ -27,6 +27,16 @@ import com.soniccontrol.core.devices.NoiseStatus
 import com.soniccontrol.core.devices.StandardUuids
 import com.soniccontrol.core.devices.SupportStatus
 import com.soniccontrol.core.diagnostics.EventCategory
+import com.soniccontrol.core.devices.DeviceSetting
+import com.soniccontrol.core.devices.EarSide
+import com.soniccontrol.core.devices.GestureLayout
+import com.soniccontrol.core.devices.GestureState
+import com.soniccontrol.core.devices.GestureSupport
+import com.soniccontrol.core.devices.NoiseLevelKind
+import com.soniccontrol.core.devices.NoiseLevelSupport
+import com.soniccontrol.core.devices.SettingReading
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
 
 class JblDriver : HeadphoneDriver {
@@ -54,6 +64,10 @@ class JblDriver : HeadphoneDriver {
         }
         return null
     }
+
+    override fun describeFrame(frame: ByteArray): String? = JblHarman.describe(frame)
+        ?: JblProtocol.P4.validate(frame)?.let { "Protocol 4 cmd 0x%04x".format(it.command) }
+        ?: JblProtocol.Race.validate(frame)?.let { "RACE cmd 0x%04x".format(it.command) }
 
     override fun createSession(link: DeviceLink, identity: DeviceIdentity, env: DriverEnvironment): DriverSession {
         val model = JblCatalog.findModel(identity.name)
@@ -89,6 +103,8 @@ internal class JblSession(
 
     override suspend fun start() {
         startUniversalSources()
+        // The Fast Pair model id may arrive after the vendor channel: re-check the settings profile against it (TASK 014).
+        launch { state.map { it.modelId }.distinctUntilChanged().collect { if (stack == JblStack.HARMAN_AA) applyStack() } }
         selectControlChannel()
         // GATT can come up later (for example on the LE address a Fast Pair stream reports after a reconnect):
         // run the selection again then, once, without duplicating sessions or subscriptions.
@@ -194,6 +210,7 @@ internal class JblSession(
             if (stack == JblStack.UNIDENTIFIED) identified(JblStack.HARMAN_AA)
             if (stack != JblStack.HARMAN_AA) return
             val f = p3
+            if (onSettingsFrame(frame, f)) return
             JblProtocol.P3.parseNative(f)?.let { n ->
                 // A native notification means the earbuds changed something (case, wear, mode). Contents are not interpreted
                 // (no verified Tune Beam 2 sample); the state is re-read through the verified Fast Pair source instead.
@@ -214,7 +231,11 @@ internal class JblSession(
             JblProtocol.P3.parseListeningMode(f)?.let { mode ->
                 update { it.copy(noise = NoiseStatus(mode, DataSource.VENDOR_PROTOCOL, env.clock())) }
             }
-            JblProtocol.P3.unknownSlotValue(f)?.let { v -> log(EventCategory.DRIVER, "listening mode slot 4 = 0x${v.toString(16)} (meaning not established, ignored)") }
+            JblProtocol.P3.unknownSlotValue(f)?.let { v ->
+                val level = JblHarman.ancLevelInModeReport(f)
+                if (profile() != null && level != null) putSetting(DeviceSetting.ANC_LEVEL, level.toString(), frame)
+                else log(EventCategory.DRIVER, "listening mode slot 4 = 0x${v.toString(16)} (ANC level on the Tune Beam 2 only; not applied here)")
+            }
         } else if (p4 != null) {
             if (stack == JblStack.UNIDENTIFIED) identified(JblStack.PROTOCOL_4)
             if (stack != JblStack.PROTOCOL_4) return
@@ -285,6 +306,12 @@ internal class JblSession(
             JblStack.UNIDENTIFIED -> DeviceCapabilities.UNIVERSAL
         }
         val modes = if (stack == JblStack.HARMAN_AA || stack == JblStack.AIROHA_RACE) NoiseMode.entries.toList() else emptyList()
+        val profile = profile()
+        val extra = if (profile != null) mapOf(
+            Feature.TOUCH_GESTURES to FeatureSupport(SupportStatus.EXPERIMENTAL, "H-AA 0x77, 4 layouts per earbud, read-back verified"),
+            Feature.DEVICE_EQUALIZER to FeatureSupport(SupportStatus.EXPERIMENTAL, "H-AA 0xA2 read-only (current preset)"),
+            Feature.SPATIAL_AUDIO to FeatureSupport(SupportStatus.EXPERIMENTAL, "H-AA 0x06 feature 0x0C read-only"),
+        ) else emptyMap()
         val label = when (stack) {
             JblStack.HARMAN_AA -> "JBL H-AA"
             JblStack.PROTOCOL_4 -> "JBL Protocol 4"
@@ -294,8 +321,127 @@ internal class JblSession(
         update { st ->
             // Keep battery capabilities already earned from passive sources.
             val kept = st.capabilities.features.filterKeys { it == Feature.BATTERY || (it == Feature.BATTERY_PER_COMPONENT && caps.features[it] == null) }
-            st.copy(capabilities = caps.copy(features = caps.features + kept), noiseModes = modes, protocol = label)
+            st.copy(
+                capabilities = caps.copy(features = caps.features + kept + extra), noiseModes = modes, protocol = label,
+                gestureSupport = profile?.let { GestureSupport(GestureLayout.entries.toList(), SupportStatus.EXPERIMENTAL, it.evidence, reportsTapEvents = false) },
+                noiseLevelSupport = profile?.let { NoiseLevelSupport(setOf(NoiseLevelKind.ANC, NoiseLevelKind.AMBIENT), JblHarman.LEVEL_MAX, SupportStatus.EXPERIMENTAL, it.evidence) },
+                gestures = if (profile == null) null else st.gestures,
+            )
         }
+    }
+
+    // ---------------- TASK 014: Tune Beam 2 settings ----------------
+
+    /** The settings dialect applies only to the captured model on H-AA, and only if a reported Fast Pair model id agrees. */
+    private fun profile(): JblSettingsProfile? {
+        val p = model?.settings ?: return null
+        if (stack != JblStack.HARMAN_AA) return null
+        val id = state.value.modelId
+        return if (id == null || id.equals(p.fastPairModelId, ignoreCase = true)) p else null
+    }
+
+    private fun putSetting(setting: DeviceSetting, value: String, frame: ByteArray) {
+        val r = SettingReading(setting, value, DataSource.VENDOR_NATIVE_EXPERIMENTAL, env.clock(), com.soniccontrol.core.protocol.Hex.encode(frame))
+        update { it.copy(settings = it.settings + (setting to r)) }
+    }
+
+    /** Touch controls, levels, features, Smart Audio and EQ reports. True when the frame was one of them (handled). */
+    private fun onSettingsFrame(frame: ByteArray, f: JblProtocol.P3.Frame): Boolean {
+        val profile = profile()
+        JblHarman.parseGestureReport(frame)?.let { sides ->
+            if (profile == null) { log(EventCategory.DRIVER, "touch controls report ignored: no settings profile for this model"); return true }
+            val now = env.clock()
+            update { st ->
+                val old = st.gestures
+                st.copy(gestures = GestureState(sides[EarSide.LEFT] ?: old?.left, sides[EarSide.RIGHT] ?: old?.right, DataSource.VENDOR_NATIVE_EXPERIMENTAL, now))
+            }
+            return true
+        }
+        if (JblHarman.isGestureEcho(frame)) { log(EventCategory.DRIVER, "touch controls write echoed (not a result; read-back decides)"); return true }
+        if (profile == null) return false
+        JblHarman.parseLevelReport(frame)?.let { levels ->
+            levels[NoiseLevelKind.ANC]?.let { putSetting(DeviceSetting.ANC_LEVEL, it.toString(), frame) }
+            levels[NoiseLevelKind.AMBIENT]?.let { putSetting(DeviceSetting.AMBIENT_LEVEL, it.toString(), frame) }
+            return true
+        }
+        if (f.command == 0x80) { putSetting(DeviceSetting.SMART_AUDIO_VIDEO, JblHarman.parseSmartAudio(frame) ?: "unknown", frame); return true }
+        if (f.command == 0xA2) { putSetting(DeviceSetting.EQ_PRESET, JblHarman.parseEqReport(frame) ?: "unknown (0x%02x)".format(f.payload[1].toInt() and 0xFF), frame); return true }
+        val features = JblHarman.parseFeatureReport(frame) ?: return false
+        val known = features.keys.intersect(JblHarman.READABLE_FEATURES)
+        if (known.isEmpty()) return false          // battery records and unknown ids: the existing native path decides
+        features[JblHarman.FEATURE_SPATIAL]?.let { putSetting(DeviceSetting.SPATIAL_SOUND, JblHarman.spatialOf(it) ?: "unknown", frame) }
+        features[JblHarman.FEATURE_VOICE_AWARE]?.let { putSetting(DeviceSetting.VOICE_AWARE, JblHarman.voiceAwareOf(it) ?: "unknown", frame) }
+        features[JblHarman.FEATURE_VOLUME_LIMITER]?.let { putSetting(DeviceSetting.VOLUME_LIMITER, JblHarman.limiterOf(it) ?: "unknown", frame) }
+        return true
+    }
+
+    private fun settingsGate(): CommandOutcome? {
+        if (profile() == null) return CommandOutcome.Unsupported("no verified settings protocol for this model")
+        if (harmanExec == null || state.value.control != ChannelState.CONFIRMED) return CommandOutcome.NotConnected
+        return null
+    }
+
+    override suspend fun readGestures(): CommandOutcome {
+        settingsGate()?.let { return it }
+        return harmanExec!!.execute(JblCommands.gestureQuery(null))
+    }
+
+    override suspend fun setGestureLayout(side: EarSide, layout: GestureLayout): CommandOutcome {
+        settingsGate()?.let { return it }
+        val exec = harmanExec!!
+        // Start from a fresh reading of both earbuds: the other earbud must be the same afterwards.
+        val read = exec.execute(JblCommands.gestureQuery(null))
+        if (read !is CommandOutcome.Confirmed) return read
+        val before = JblHarman.parseGestureReport(read.response) ?: return CommandOutcome.Failed("touch controls report not understood")
+        val other = if (side == EarSide.LEFT) EarSide.RIGHT else EarSide.LEFT
+        if (before[side]?.layout == layout) return read     // already set: nothing is written
+        val w = exec.execute(JblCommands.gestureSet(side, layout))
+        if (w is CommandOutcome.Rejected || w is CommandOutcome.NotConnected || w is CommandOutcome.Failed || w is CommandOutcome.Unsupported) return w
+        // The write's echo (or its absence) is not the result: read both earbuds back.
+        val back = exec.execute(JblCommands.gestureQuery(null))
+        if (back !is CommandOutcome.Confirmed) return CommandOutcome.Failed("written, but the headset did not report its touch controls afterwards")
+        val after = JblHarman.parseGestureReport(back.response) ?: return CommandOutcome.Failed("touch controls report not understood")
+        if (after[side]?.layout != layout) return CommandOutcome.Failed("headset reports ${after[side]?.layout ?: "an unknown layout"} on $side")
+        if (before[other]?.rawHex != after[other]?.rawHex) return CommandOutcome.Failed("the other earbud changed too")
+        return back
+    }
+
+    override suspend fun setNoiseLevel(kind: NoiseLevelKind, level: Int): CommandOutcome {
+        settingsGate()?.let { return it }
+        if (level !in 1..JblHarman.LEVEL_MAX) return CommandOutcome.Rejected("level out of range")
+        val exec = harmanExec!!
+        val w = exec.execute(JblCommands.levelSet(kind, level))
+        if (w is CommandOutcome.Rejected || w is CommandOutcome.NotConnected || w is CommandOutcome.Failed || w is CommandOutcome.Unsupported) return w
+        return when (kind) {
+            NoiseLevelKind.ANC -> {
+                val m = exec.execute(JblCommands.p3ModeGet(commandStatus()))
+                if (m !is CommandOutcome.Confirmed) return CommandOutcome.Failed("level written, read-back did not answer")
+                val got = JblProtocol.P3.validate(m.response)?.let(JblHarman::ancLevelInModeReport)
+                if (got == level) m else CommandOutcome.Failed("headset reports ANC level $got")
+            }
+            NoiseLevelKind.AMBIENT -> {
+                val q = exec.execute(JblCommands.levelQuery())
+                if (q !is CommandOutcome.Confirmed) return CommandOutcome.SentUnconfirmed   // the level query is not confirmed on this model
+                val got = JblHarman.parseLevelReport(q.response)?.get(NoiseLevelKind.AMBIENT)
+                if (got == level) q else CommandOutcome.Failed("headset reports Ambient level $got")
+            }
+        }
+    }
+
+    /** Lab: read-only queries; every answer goes through [onSettingsFrame]. Confirmed when at least one setting was read. */
+    override suspend fun readSettings(): CommandOutcome {
+        settingsGate()?.let { return it }
+        val exec = harmanExec!!
+        val outcomes = listOf(
+            exec.execute(JblCommands.p3ModeGet(commandStatus())),
+            exec.execute(JblCommands.levelQuery()),
+            exec.execute(JblCommands.featureQuery(JblHarman.FEATURE_SPATIAL)),
+            exec.execute(JblCommands.featureQuery(JblHarman.FEATURE_VOICE_AWARE)),
+            exec.execute(JblCommands.featureQuery(JblHarman.FEATURE_VOLUME_LIMITER)),
+            exec.execute(JblCommands.smartAudioQuery()),
+            exec.execute(JblCommands.eqQuery()),
+        )
+        return outcomes.firstOrNull { it is CommandOutcome.Confirmed } ?: outcomes.last()
     }
 
     override suspend fun refresh(): CommandOutcome {

@@ -45,7 +45,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: DiagnosticLog, experimentalEnabled: StateFlow<Boolean>) {
+fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: DiagnosticLog, experimentalEnabled: StateFlow<Boolean>, tools: com.soniccontrol.core.devices.LabTools? = null) {
     val active by controller.active.collectAsStateWithLifecycle()
     val services by lab.services.collectAsStateWithLifecycle()
     val sdp by lab.sdpUuids.collectAsStateWithLifecycle()
@@ -122,11 +122,8 @@ fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: 
                     Text(stringResource(R.string.lab_endpoint_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            item {
-                SonicCard(title = stringResource(R.string.lab_hci_title)) {
-                    Text(stringResource(R.string.lab_hci_body), style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            item { CapabilitiesCard(device, controller, experimental) }
+            if (tools != null) item { ObservationCard(tools) }
             if (sdp.isNotEmpty()) {
                 item {
                     SonicCard(title = stringResource(R.string.lab_sdp)) {
@@ -150,6 +147,7 @@ fun DiagnosticsScreen(controller: HeadphoneController, lab: LabController, log: 
                 }
             }
         }
+        if (tools != null) item { ImportAndPackageCard(tools) }
         item {
             SonicCard(title = stringResource(R.string.lab_export_title)) {
                 Text(stringResource(R.string.lab_export_body), style = MaterialTheme.typography.bodySmall)

@@ -18,6 +18,9 @@
 | [FajkPes/JBL-Headphones-App](https://github.com/FajkPes/JBL-Headphones-App) | **ліцензії немає** (усі права захищено) | Лише факти: структура кадру JBL Protocol 4, ідентифікатори функцій (батарея 13/14/7939, product id 4, прошивка 12), список руйнівних команд для блокування. Жодного рядка коду не взято. |
 | [Omega-Destroyer/PairFree](https://github.com/Omega-Destroyer/PairFree) | GPL-3.0 | Переглянуто для аналізу конкурентів; код **не використано** (несумісно з можливим закритим релізом). |
 | [timschneeb/GalaxyBudsClient](https://github.com/timschneeb/GalaxyBudsClient) | GPL-3.0 | Лише як майбутнє джерело фактів для незалежної реалізації Samsung; код не використано. |
+| [aimpr0xy/jbl-on-mac](https://github.com/aimpr0xy/jbl-on-mac) (issue #39, PR #40) | GPL-3.0 | TASK 014: лише факти з опублікованого запису трафіку застосунку JBL з Tune Beam 2 (`AA 77`, рівні `AA 91 2x`, `AA 06`, `AA 80`, `AA A2`). Реалізація власна, код не копіювався. |
+| [gijogadds/JBL-Headphones](https://github.com/gijogadds/JBL-Headphones) | MIT | TASK 014: лише факти — профіль моделі Tune Beam 2 (PID, групи жестів, значення Smart Audio & Video, діапазон EQ) і опис Harman Protocol 3/4. Код не копіювався. |
+| Google Fast Pair Hearable Controls | специфікація | TASK 014: формат Notify ANC state (група 0x08), лише пасивне читання. |
 | Gadgetbridge | AGPL-3.0 | Не використано. |
 | [AutoEq](https://github.com/jaakkopasanen/AutoEq) | MIT | Запланований імпорт кривих корекції (v0.2). |
 

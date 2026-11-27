@@ -109,6 +109,10 @@ class PlayerConnection(context: Context) {
         }
     }
 
+    /** Automation (TASK 014): explicit pause / resume of the own player only. */
+    fun pause() = withController { it.pause() }
+    fun resume() = withController { c -> if (c.mediaItemCount > 0) { if (c.playbackState == Player.STATE_ENDED) c.seekToDefaultPosition(0); c.play() } }
+
     fun togglePlay() = withController { c -> if (c.isPlaying) c.pause() else { if (c.playbackState == Player.STATE_ENDED) c.seekToDefaultPosition(0); c.play() } }
     fun next() = withController { it.seekToNext() }
     fun previous() = withController { it.seekToPrevious() }

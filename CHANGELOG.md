@@ -1,5 +1,12 @@
 # Журнал змін
 
+## 0.8.x (TASK 014)
+- JBL Tune Beam 2 research (own captures + a published JBL-app capture of the same model + the JBL app's model profile + Fast Pair Hearable Controls): touch controls `AA 77` (read, and the 4 layouts per earbud the JBL app writes), the unknown mode-report slot is the ANC level, ANC/Ambient levels, read-only EQ preset / Smart Audio & Video / spatial sound / VoiceAware / limiter, passive Fast Pair ANC notify. Exact-frame allowlist only; Experimental; nothing ported from other models.
+- Gesture editor: model-specific layouts, automatic backup before the first change, one earbud at a time, confirmed only by reading both earbuds back, restore from backup; calls untouched. ANC/Ambient strength on the Noise screen.
+- AutomationEngine ("If -> then"): triggers (connect, playback start/stop, battery low per component, sleep timer start, time of day, confirmed noise-mode change, gesture where reported), conditions, actions (noise mode, player volume, pause/resume, EQ profile, sleep timer), delay, priority, enable, device binding, journal; protection against loops, repeated Bluetooth events, stale data and conflicts; manual changes win for 30 min and nothing is re-applied by polling.
+- Lab: passive observation timeline, before/after gesture experiments with cycle analysis, btsnoop HCI import (ATT values recognised by a driver only, no addresses), JSON test package.
+- Docs: docs/TASK014_REPORT.md, docs/JBL_GESTURE_PROTOCOL.md (compatibility matrix + physical experiments E1–E15).
+
 ## 0.8.x (TASK 013)
 - Sleep timer: configurable fade of the player's own volume — on/off, length 5–100 % of the time or in minutes, end volume from 0 to the current volume, live graph of the planned volume; changes apply at once while the timer runs (no jumps) and are saved. Default unchanged (last 10 %, down to 0). The fade starts from the actual player volume (new "Player volume" slider); a manual volume change during the fade re-plans the rest from the new level. The system volume is never changed. The end is unchanged whatever the end volume (stop, save queue and position, full shutdown until opened by hand). Wall-clock checks plus a while-idle alarm backstop for screen-off. The second, system-volume sleep timer on the Automation page was removed; that page now shows the same single timer. UA/EN/PL, tests. See docs/TASK013_REPORT.md.
 

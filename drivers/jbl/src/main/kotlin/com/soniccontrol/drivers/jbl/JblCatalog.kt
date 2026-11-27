@@ -8,7 +8,23 @@ import com.soniccontrol.core.devices.SupportStatus
 
 enum class JblStack { HARMAN_AA, PROTOCOL_4, AIROHA_RACE, UNIDENTIFIED }
 
-data class JblModelInfo(val name: String, val stack: JblStack, val pids: Set<Int> = emptySet(), val earbuds: Boolean = true, val hasAnc: Boolean = true)
+data class JblModelInfo(
+    val name: String,
+    val stack: JblStack,
+    val pids: Set<Int> = emptySet(),
+    val earbuds: Boolean = true,
+    val hasAnc: Boolean = true,
+    /** TASK 014: model-specific settings dialect, only for a model a capture of that exact model exists for. */
+    val settings: JblSettingsProfile? = null,
+)
+
+/**
+ * Settings a model may use beyond mode and battery. Each profile is tied to the hardware it was captured on: the Fast Pair model
+ * id, when the headset reports one, must match too (a different id means different hardware with the same name).
+ */
+enum class JblSettingsProfile(val fastPairModelId: String, val evidence: String) {
+    TUNE_BEAM_2("B484FB", "Tune Beam 2 captures: own (B484FB, fw 0.2.8.0) + published JBL-app PacketLogger capture (jbl-on-mac #39/#40)"),
+}
 
 /**
  * JBL model table.
@@ -50,7 +66,7 @@ object JblCatalog {
         JblModelInfo("Vibe Flex 2", JblStack.HARMAN_AA, setOf(0x2103)),
         JblModelInfo("Tune Buds 2", JblStack.HARMAN_AA, setOf(0x210C)),
         JblModelInfo("Tune Flex 2", JblStack.HARMAN_AA, setOf(0x210E)),
-        JblModelInfo("Tune Beam 2", JblStack.HARMAN_AA, setOf(0x210D)),
+        JblModelInfo("Tune Beam 2", JblStack.HARMAN_AA, setOf(0x210D), settings = JblSettingsProfile.TUNE_BEAM_2),
         JblModelInfo("Tune 720BT", JblStack.HARMAN_AA, earbuds = false, hasAnc = false),
         JblModelInfo("Tour Pro 3", JblStack.AIROHA_RACE),
         JblModelInfo("Live Buds 3", JblStack.AIROHA_RACE),
@@ -91,6 +107,11 @@ object JblCatalog {
             JblStack.HARMAN_AA -> {
                 if (model.earbuds) m[Feature.BATTERY_PER_COMPONENT] = s
                 if (model.hasAnc) { m[Feature.NOISE_CONTROL] = s; m[Feature.TALK_THRU] = s }
+                if (model.settings != null) {
+                    m[Feature.TOUCH_GESTURES] = SupportStatus.EXPERIMENTAL
+                    m[Feature.DEVICE_EQUALIZER] = SupportStatus.EXPERIMENTAL   // read-only: current preset
+                    m[Feature.SPATIAL_AUDIO] = SupportStatus.EXPERIMENTAL      // read-only
+                }
             }
             JblStack.AIROHA_RACE -> if (model.hasAnc) { m[Feature.NOISE_CONTROL] = s; m[Feature.TALK_THRU] = s }
             JblStack.PROTOCOL_4 -> m[Feature.BATTERY_PER_COMPONENT] = SupportStatus.EXPERIMENTAL

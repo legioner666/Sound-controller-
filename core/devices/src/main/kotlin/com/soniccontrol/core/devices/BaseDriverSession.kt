@@ -458,6 +458,12 @@ abstract class BaseDriverSession(
                     // Priority GATT candidate for this session only; if GATT opens now, read the standard sources again.
                     if (link.suggestEndpoint(e.address, streamModelId)) launchGattSources()
                 }
+                is FastPairEvent.HearableAncState -> {
+                    // Fast Pair Hearable controls: which modes the headset offers in its cycle (UI toggles) and the current one.
+                    val a = e.anc
+                    val value = "current ${a.current}; in cycle ${a.supported.sorted().joinToString("/")}; settable ${a.settable.sorted().joinToString("/")}"
+                    update { it.copy(settings = it.settings + (DeviceSetting.FAST_PAIR_ANC to SettingReading(DeviceSetting.FAST_PAIR_ANC, value, DataSource.FAST_PAIR_STREAM, env.clock(), com.soniccontrol.core.protocol.Hex.encode(frame)))) }
+                }
                 is FastPairEvent.Unknown -> Unit
             }
         }

@@ -71,6 +71,18 @@ object BatteryHistory {
 }
 
 internal object Codecs {
+    /** `address|leftLayout|rightLayout|leftRaw|rightRaw|time` per line; layouts may be empty (unknown combination). */
+    fun encodeBackups(m: Map<String, com.soniccontrol.core.devices.GestureBackup>): String = m.entries.joinToString("\n") { (k, b) ->
+        listOf(k, b.left?.name.orEmpty(), b.right?.name.orEmpty(), b.leftRaw.orEmpty(), b.rightRaw.orEmpty(), b.savedAt.toString()).joinToString("|")
+    }
+
+    fun decodeBackups(text: String?): Map<String, com.soniccontrol.core.devices.GestureBackup> = text.orEmpty().lines().mapNotNull { line ->
+        val p = line.split("|")
+        if (p.size != 6 || p[0].isBlank()) return@mapNotNull null
+        fun layout(s: String) = s.takeIf { it.isNotEmpty() }?.let { runCatching { com.soniccontrol.core.devices.GestureLayout.valueOf(it) }.getOrNull() }
+        p[0] to com.soniccontrol.core.devices.GestureBackup(layout(p[1]), layout(p[2]), p[3].ifEmpty { null }, p[4].ifEmpty { null }, p[5].toLongOrNull() ?: return@mapNotNull null)
+    }.toMap()
+
     fun encodeProfiles(list: List<EqProfile>): String = list.joinToString("\n") { p ->
         listOf(p.id, p.name.replace("|", " ").replace("\n", " "), p.gainsDb.joinToString(","), if (p.builtIn) "1" else "0").joinToString("|")
     }

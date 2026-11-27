@@ -26,6 +26,7 @@ notify `…0001`, write `…0002`.
 | `aa 91 01 11` | `aa 91 07 12 01 a 02 b 03 c` | режим (1=ANC, 2=Ambient, 3=TalkThru) |
 | `aa 91 07 10 01 a 02 b 03 c` | звіт `…12…` | встановити режим |
 | `aa 95 …` | — | ⛔ factory reset, заблоковано |
+| `aa 77 02 01 ff` / `aa 77 09 00 …` | `aa 77 <len> 02 …` | жести Tune Beam 2 (TASK 014, Experimental) — див. `JBL_GESTURE_PROTOCOL.md` |
 
 **Protocol 4 (моделі 2025+)** — `00 DD | cmd u16 LE | count | index | len u16 LE | TLV`. 🧪
 Реалізовано лише `GET_DEVICE_INFO (0x0001)` для ID: 4 product id, 12 прошивка, 13/14 заряд L/R, 7939 кейс. Будь-яка інша команда P4 ⛔.

@@ -71,6 +71,14 @@ data class HeadphoneState(
     val control: ChannelState = ChannelState.UNAVAILABLE,
     val busy: Boolean = false,
     val live: LiveInfo = LiveInfo(),
+    /** Touch-control protocol of this model, or null when there is none (TASK 014). */
+    val gestureSupport: GestureSupport? = null,
+    /** Last touch controls read from the headset (validated report only). */
+    val gestures: GestureState? = null,
+    /** Noise-control levels this model accepts, or null. */
+    val noiseLevelSupport: NoiseLevelSupport? = null,
+    /** Read-only settings decoded from validated reports, newest per setting. */
+    val settings: Map<DeviceSetting, SettingReading> = emptyMap(),
 )
 
 /** A live, driver-owned control session for one connected device. */
@@ -94,6 +102,22 @@ interface DriverSession {
 
     /** Explicit user action from the Lab: identify the protocol variant with read-only queries. */
     suspend fun probe(): CommandOutcome
+
+    /** Reads the touch controls of both earbuds (read-only). Default: this device has no gesture protocol. */
+    suspend fun readGestures(): CommandOutcome = CommandOutcome.Unsupported("no touch-control protocol for this device")
+
+    /**
+     * Changes one earbud to [layout] and reads both earbuds back. Confirmed only when the headset then reports the requested
+     * layout on [side] and the other earbud unchanged; anything else is a failure with the reported state kept.
+     */
+    suspend fun setGestureLayout(side: EarSide, layout: GestureLayout): CommandOutcome =
+        CommandOutcome.Unsupported("no touch-control protocol for this device")
+
+    /** Changes the strength of ANC or Ambient Aware and reads it back. */
+    suspend fun setNoiseLevel(kind: NoiseLevelKind, level: Int): CommandOutcome = CommandOutcome.Unsupported("no level control for this device")
+
+    /** Lab: reads the model's read-only settings (EQ preset, Smart Audio, levels...). Never writes. */
+    suspend fun readSettings(): CommandOutcome = CommandOutcome.Unsupported("no readable settings for this device")
 }
 
 /** One manufacturer family. New models are added to [catalog] and, if needed, to the driver's command table. */
@@ -107,6 +131,9 @@ interface HeadphoneDriver {
     fun match(identity: DeviceIdentity): DriverMatch?
 
     fun createSession(link: DeviceLink, identity: DeviceIdentity, env: DriverEnvironment): DriverSession
+
+    /** Short technical label for a received frame (Lab timeline, HCI import), or null when it is not this driver's protocol. */
+    fun describeFrame(frame: ByteArray): String? = null
 }
 
 class DriverRegistry(private val drivers: List<HeadphoneDriver>, val fallback: HeadphoneDriver) {

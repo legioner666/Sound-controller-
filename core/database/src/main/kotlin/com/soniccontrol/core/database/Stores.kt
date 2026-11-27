@@ -76,6 +76,9 @@ class SonicDatabase internal constructor(private val store: DataStore<Preference
         val balance = floatPreferencesKey("balance")
         val refreshActive = intPreferencesKey("refresh_active_s")
         val refreshBackground = intPreferencesKey("refresh_background_s")
+        /** TASK 014: automation rules (RuleCodec text in the app) and touch-control backups per headset. */
+        val automationRules = stringPreferencesKey("automation_rules")
+        val gestureBackups = stringPreferencesKey("gesture_backups")
     }
 
     val settings: StateFlow<AppSettings> = store.data.map(::decodeSettings).stateIn(scope, SharingStarted.Eagerly, AppSettings())
@@ -87,6 +90,17 @@ class SonicDatabase internal constructor(private val store: DataStore<Preference
     val batteryHistory: StateFlow<List<BatteryRecord>> = store.data.map { p ->
         Codecs.decodeHistory(p[K.batteryHistory])
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Rules as text (encoded/decoded by the automation module, so this module needs no knowledge of them). */
+    val automationRules: StateFlow<String> = store.data.map { it[K.automationRules].orEmpty() }.stateIn(scope, SharingStarted.Eagerly, "")
+    suspend fun saveAutomationRules(text: String) = store.edit { it[K.automationRules] = text }
+
+    val gestureBackups: StateFlow<Map<String, com.soniccontrol.core.devices.GestureBackup>> =
+        store.data.map { Codecs.decodeBackups(it[K.gestureBackups]) }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+    suspend fun saveGestureBackup(deviceKey: String, b: com.soniccontrol.core.devices.GestureBackup) =
+        store.edit { it[K.gestureBackups] = Codecs.encodeBackups(Codecs.decodeBackups(it[K.gestureBackups]) + (deviceKey to b)) }
+    suspend fun deleteGestureBackup(deviceKey: String) =
+        store.edit { it[K.gestureBackups] = Codecs.encodeBackups(Codecs.decodeBackups(it[K.gestureBackups]) - deviceKey) }
 
     suspend fun setTheme(t: ThemeMode) = store.edit { it[K.theme] = t.name }
     suspend fun setExperimental(v: Boolean) = store.edit { it[K.experimental] = v }

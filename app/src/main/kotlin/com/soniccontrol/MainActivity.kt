@@ -204,8 +204,8 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                         when (page) {
                             SoundPage.NOISE -> NoiseControlScreen(controller, controller.experimental)
                             SoundPage.EQ -> EqualizerScreen(controller, container.db, container.systemEq)
-                            SoundPage.GESTURES -> GesturesScreen(controller)
-                            SoundPage.AUTOMATION -> AutomationScreen(container.player)
+                            SoundPage.GESTURES -> GesturesScreen(controller, controller.experimental)
+                            SoundPage.AUTOMATION -> AutomationScreen(container.player, container.automation, controller, container.db.eqProfiles, controller.experimental)
                         }
                     }
                 }
@@ -218,7 +218,7 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                             }) { page = it }
                         }
                         when (page) {
-                            LabPage.DIAGNOSTICS -> DiagnosticsScreen(controller, controller, container.log, controller.experimental)
+                            LabPage.DIAGNOSTICS -> DiagnosticsScreen(controller, controller, container.log, controller.experimental, container.lab)
                             LabPage.BATTERY -> BatteryScreen(controller, container.db) { it }
                         }
                     }
