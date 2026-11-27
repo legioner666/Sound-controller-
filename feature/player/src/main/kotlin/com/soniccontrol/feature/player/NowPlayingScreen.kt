@@ -120,18 +120,7 @@ fun NowPlayingScreen(player: PlayerConnection, headphones: HeadphoneController, 
                 SegmentedTabs(modes, current, { noiseLabel(it) }) { headphones.setNoiseMode(it) }
             }
         }
-        item {
-            SonicCard(title = stringResource(R.string.player_sleep)) {
-                val remaining = st.sleepRemainingMillis
-                if (remaining != null) Text(stringResource(R.string.player_sleep_left, formatTime(remaining)), style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = remaining == null, onClick = { player.setSleepTimerMinutes(0) }, label = { Text(stringResource(R.string.player_sleep_off)) })
-                    listOf(15, 30, 60).forEach { m ->
-                        FilterChip(selected = false, onClick = { player.setSleepTimerMinutes(m) }, label = { Text(stringResource(R.string.player_sleep_min, m)) })
-                    }
-                }
-            }
-        }
+        item { SleepTimerCard(player) }
         item {
             SonicCard(title = stringResource(R.string.player_bass)) {
                 if (st.bassSupported) {

@@ -66,7 +66,24 @@
     <string name="player_sleep">Wyłącznik czasowy</string>
     <string name="player_sleep_off">Wyłączony</string>
     <string name="player_sleep_min">%1$d min</string>
-    <string name="player_sleep_left">Pauza za %1$s</string>
+    <string name="player_sleep_left">Zatrzymanie i zamknięcie za %1$s</string>
+    <string name="sleep_player_volume">Głośność odtwarzacza: %1$d%%</string>
+    <string name="sleep_fade_toggle">Płynne ściszanie</string>
+    <string name="sleep_fade_length">Czas ściszania</string>
+    <string name="sleep_fade_mode_percent" formatted="false">% czasu</string>
+    <string name="sleep_fade_mode_minutes">Minuty</string>
+    <string name="sleep_fade_percent_value">Ostatnie %1$d%% czasu</string>
+    <string name="sleep_fade_minutes_value">Ostatnie %1$d min</string>
+    <string name="sleep_fade_capped">Dłużej niż minutnik: ściszanie potrwa cały czas.</string>
+    <string name="sleep_fade_starts_before">Ściszanie zacznie się %1$s przed końcem minutnika.</string>
+    <string name="sleep_fade_seconds">%1$d s</string>
+    <string name="sleep_fade_target">Głośność końcowa: %1$d%%</string>
+    <string name="sleep_fade_off_note">Bez ściszania: głośność nie zmieni się do końca.</string>
+    <string name="sleep_graph_title">Plan głośności</string>
+    <string name="sleep_graph_preview">Podgląd dla minutnika %1$d min</string>
+    <string name="sleep_graph_now">teraz</string>
+    <string name="sleep_graph_desc">Plan głośności: od %1$d%% do %2$d%% przez ostatnie %3$s</string>
+    <string name="sleep_end_note">Po upływie czasu muzyka się zatrzyma, kolejka i pozycja zostaną zapisane, a Sonic Control zamknie się całkowicie i nie uruchomi się sam, dopóki go nie otworzysz. Zmienia się tylko głośność odtwarzacza, nigdy systemowa głośność Androida.</string>
     <string name="player_bass">Wzmocnienie basów</string>
     <string name="player_bass_unsupported">Wzmocnienie basów niedostępne na tym telefonie.</string>
     <string name="player_effects_note">Equalizer i balans w zakładce Dźwięk to programowe efekty telefonu i dotyczą też tego odtwarzacza. To nie jest equalizer słuchawek.</string>
@@ -258,11 +275,6 @@
     <string name="automation_title">Automatyzacja</string>
     <string name="automation_subtitle">Minutniki i scenariusze</string>
     <string name="sleep_title">Minutnik snu</string>
-    <string name="sleep_body">Łagodnie ścisza multimedia w ostatniej minucie, a następnie wstrzymuje odtwarzanie.</string>
-    <string name="sleep_start">Uruchom minutnik</string>
-    <string name="sleep_remaining">Pozostało: %1$d:%2$02d</string>
-    <string name="sleep_note">Działa, gdy Sonic Control jest otwarty w tle. Głośność jest tylko zmniejszana, a potem przywracana.</string>
-    <string name="minutes_short">%1$d min</string>
     <string name="scenarios_title">Inteligentne scenariusze</string>
     <string name="scenarios_planned">Automatyczne tryby dla muzyki, rozmów, podróży i snu zaplanowano w v0.3. Najpierw potrzebne jest potwierdzone polecenie kontroli hałasu.</string>
     <string name="battery_lab_title">Sonic Battery</string>

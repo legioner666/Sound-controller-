@@ -15,5 +15,10 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+        <!-- Sleep-timer backstop (TASK 013): wakes the CPU at the end of the timer while the screen is off and music is
+             paused. Not exported; it only nudges the running service, it never starts music or services by itself. -->
+        <receiver
+            android:name=".SleepTimerAlarmReceiver"
+            android:exported="false" />
     </application>
 </manifest>

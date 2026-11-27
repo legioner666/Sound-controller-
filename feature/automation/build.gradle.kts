@@ -13,4 +13,6 @@ dependencies {
     implementation(project(":core:protocol"))
     implementation(project(":core:database"))
     implementation(project(":core:audio"))
+    implementation(project(":core:player"))
+    implementation(project(":feature:player"))
 }

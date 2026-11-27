@@ -205,7 +205,7 @@ private fun SonicNavigation(container: AppContainer, showOnboarding: Boolean) {
                             SoundPage.NOISE -> NoiseControlScreen(controller, controller.experimental)
                             SoundPage.EQ -> EqualizerScreen(controller, container.db, container.systemEq)
                             SoundPage.GESTURES -> GesturesScreen(controller)
-                            SoundPage.AUTOMATION -> AutomationScreen(container.audio)
+                            SoundPage.AUTOMATION -> AutomationScreen(container.player)
                         }
                     }
                 }

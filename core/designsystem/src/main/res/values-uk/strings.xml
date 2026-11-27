@@ -66,7 +66,24 @@
     <string name="player_sleep">Таймер сну</string>
     <string name="player_sleep_off">Вимкнено</string>
     <string name="player_sleep_min">%1$d хв</string>
-    <string name="player_sleep_left">Пауза через %1$s</string>
+    <string name="player_sleep_left">Зупинка і закриття через %1$s</string>
+    <string name="sleep_player_volume">Гучність плеєра: %1$d%%</string>
+    <string name="sleep_fade_toggle">Плавне зменшення гучності</string>
+    <string name="sleep_fade_length">Тривалість згасання</string>
+    <string name="sleep_fade_mode_percent" formatted="false">% часу</string>
+    <string name="sleep_fade_mode_minutes">Хвилини</string>
+    <string name="sleep_fade_percent_value">Останні %1$d%% часу</string>
+    <string name="sleep_fade_minutes_value">Останні %1$d хв</string>
+    <string name="sleep_fade_capped">Довше за таймер: згасання триватиме весь час.</string>
+    <string name="sleep_fade_starts_before">Зменшення почнеться за %1$s до завершення таймера.</string>
+    <string name="sleep_fade_seconds">%1$d с</string>
+    <string name="sleep_fade_target">Кінцева гучність: %1$d%%</string>
+    <string name="sleep_fade_off_note">Без згасання: гучність не зміниться до кінця.</string>
+    <string name="sleep_graph_title">План гучності</string>
+    <string name="sleep_graph_preview">Приклад для таймера на %1$d хв</string>
+    <string name="sleep_graph_now">зараз</string>
+    <string name="sleep_graph_desc">План гучності: від %1$d%% до %2$d%% за останні %3$s</string>
+    <string name="sleep_end_note">Коли час мине, музика зупиниться, черга й позиція збережуться, а Sonic Control повністю закриється і не запуститься сам до ручного відкриття. Змінюється лише гучність плеєра, системна гучність Android — ніколи.</string>
     <string name="player_bass">Підсилення басів</string>
     <string name="player_bass_unsupported">Підсилення басів недоступне на цьому телефоні.</string>
     <string name="player_effects_note">Еквалайзер і баланс на вкладці «Звук» — програмні ефекти телефону, діють і на цей плеєр. Це не апаратний еквалайзер навушників.</string>
@@ -258,11 +275,6 @@
     <string name="automation_title">Автоматизація</string>
     <string name="automation_subtitle">Таймери та сценарії</string>
     <string name="sleep_title">Таймер сну</string>
-    <string name="sleep_body">Плавно зменшує гучність медіа протягом останньої хвилини, а потім ставить відтворення на паузу.</string>
-    <string name="sleep_start">Запустити таймер</string>
-    <string name="sleep_remaining">Залишилось: %1$d:%2$02d</string>
-    <string name="sleep_note">Працює, поки Sonic Control відкрито у фоні. Гучність лише зменшується, а потім відновлюється.</string>
-    <string name="minutes_short">%1$d хв</string>
     <string name="scenarios_title">Розумні сценарії</string>
     <string name="scenarios_planned">Автоматичні режими для музики, дзвінків, подорожей і сну заплановано у v0.3. Спершу потрібна підтверджена команда керування шумом.</string>
     <string name="battery_lab_title">Sonic Battery</string>

@@ -14,7 +14,7 @@ app ─┬─ feature:{dashboard, devices, equalizer, noisecontrol, gestures, au
 | `core:diagnostics` | Kotlin/JVM | журнал подій (кільцевий буфер), знеособлення MAC, JSON-звіт |
 | `core:devices` | Kotlin/JVM | **HeadphoneDriver API**, `DeviceCapabilities`, статуси, каталог, `CommandExecutor`, `DeviceLink`, Fast Pair, `BaseDriverSession`, інтерфейси контролерів для UI |
 | `core:bluetooth` | Android | `GattClient` (серіалізовані GATT-операції з тайм-аутами), GATT/RFCOMM-транспорти, `AndroidDeviceLink`, сканер, дозволи |
-| `core:audio` | Android | гучність медіа (без boost), медіаклавіші, таймер сну (лише зменшення гучності) |
+| `core:audio` | Android | гучність медіа (без boost), медіаклавіші (таймер сну — у `core:player`, TASK 013) |
 | `core:database` | Android | DataStore: налаштування, EQ-профілі, історія заряду, сіль для знеособлення |
 | `core:designsystem` | Compose | тема (графіт + бірюза, темна/світла), компоненти, усі рядки (en/uk/pl) |
 | `drivers:*` | Kotlin/JVM | по драйверу на виробника; без залежності від Android — тестуються на JVM |

@@ -67,7 +67,24 @@
     <string name="player_sleep">Sleep timer</string>
     <string name="player_sleep_off">Off</string>
     <string name="player_sleep_min">%1$d min</string>
-    <string name="player_sleep_left">Pauses in %1$s</string>
+    <string name="player_sleep_left">Stops and closes in %1$s</string>
+    <string name="sleep_player_volume">Player volume: %1$d%%</string>
+    <string name="sleep_fade_toggle">Gradual volume fade</string>
+    <string name="sleep_fade_length">Fade length</string>
+    <string name="sleep_fade_mode_percent" formatted="false">% of time</string>
+    <string name="sleep_fade_mode_minutes">Minutes</string>
+    <string name="sleep_fade_percent_value">Last %1$d%% of the time</string>
+    <string name="sleep_fade_minutes_value">Last %1$d min</string>
+    <string name="sleep_fade_capped">Longer than the timer: the fade will last the whole time.</string>
+    <string name="sleep_fade_starts_before">The fade starts %1$s before the timer ends.</string>
+    <string name="sleep_fade_seconds">%1$d s</string>
+    <string name="sleep_fade_target">End volume: %1$d%%</string>
+    <string name="sleep_fade_off_note">No fade: the volume stays the same until the end.</string>
+    <string name="sleep_graph_title">Volume plan</string>
+    <string name="sleep_graph_preview">Preview for a %1$d min timer</string>
+    <string name="sleep_graph_now">now</string>
+    <string name="sleep_graph_desc">Volume plan: from %1$d%% to %2$d%% over the last %3$s</string>
+    <string name="sleep_end_note">When the time is up, music stops, the queue and position are saved, and Sonic Control closes completely and will not start again until you open it. Only the player volume changes, never the Android system volume.</string>
     <string name="player_bass">Bass boost</string>
     <string name="player_bass_unsupported">Bass boost is not available on this phone.</string>
     <string name="player_effects_note">The equaliser and balance on the Sound tab are software effects of the phone and also apply to this player. They are not the headphones’ own equaliser.</string>
@@ -259,11 +276,6 @@
     <string name="automation_title">Automation</string>
     <string name="automation_subtitle">Timers and scenarios</string>
     <string name="sleep_title">Sleep timer</string>
-    <string name="sleep_body">Gently lowers media volume during the last minute, then pauses playback.</string>
-    <string name="sleep_start">Start timer</string>
-    <string name="sleep_remaining">Time left: %1$d:%2$02d</string>
-    <string name="sleep_note">Runs while Sonic Control is open in the background. Volume is only ever lowered and is restored afterwards.</string>
-    <string name="minutes_short">%1$d min</string>
     <string name="scenarios_title">Smart scenarios</string>
     <string name="scenarios_planned">Automatic modes for music, calls, travel and sleep are planned for v0.3. They need a confirmed noise-control command first.</string>
     <string name="battery_lab_title">Sonic Battery</string>

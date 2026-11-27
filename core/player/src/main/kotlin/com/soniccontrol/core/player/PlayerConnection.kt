@@ -24,13 +24,32 @@ data class PlayerUiState(
     val repeatMode: Int = 0,
     val durationMs: Long = 0,
     val sleepRemainingMillis: Long? = null,
+    /** Plan of the running sleep timer (null without a timer); combine with the settings via [fadeCurve]. */
+    val sleepStartedAt: Long = 0,
+    val sleepEndsAt: Long = 0,
+    val fadeAnchorAt: Long = 0,
+    val fadeAnchorVolume: Float = 1f,
+    /** The user's player volume 0..1 (the app player's own volume, not Android's system volume). */
+    val playerVolume: Float = 1f,
     val bassSupported: Boolean = false,
     val bassStrength: Int = 0,
-)
+) {
+    /** The running timer's volume plan with [settings], or null without a timer. */
+    fun fadeCurve(settings: SleepFadeSettings): FadeCurve? {
+        if (sleepRemainingMillis == null || sleepEndsAt <= sleepStartedAt) return null
+        val total = sleepEndsAt - sleepStartedAt
+        return FadeCurve(sleepStartedAt, sleepEndsAt, fadeAnchorAt, fadeAnchorVolume, sleepEndsAt - settings.fadeMillis(total), settings.target)
+    }
+}
 
 /** The app's handle on the playback service. Everything goes through the media session, like any other controller. */
 class PlayerConnection(context: Context) {
-    private val app = context.applicationContext
+    private val app = context.applicationContext.also { SleepFadeStore.init(it) }
+
+    /** Last sleep-fade settings (kept across restarts); changes apply at once, also to a running timer. */
+    val fadeSettings: StateFlow<SleepFadeSettings> = SleepFadeStore.settings
+
+    fun updateFadeSettings(s: SleepFadeSettings) = SleepFadeStore.update(app, s)
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
@@ -72,6 +91,9 @@ class PlayerConnection(context: Context) {
             connected = true, current = items.getOrNull(idx), isPlaying = c.isPlaying, queue = items, currentIndex = if (items.isEmpty()) -1 else idx,
             shuffle = c.shuffleModeEnabled, repeatMode = c.repeatMode, durationMs = c.duration.takeIf { it > 0 } ?: items.getOrNull(idx)?.durationMs ?: 0L,
             sleepRemainingMillis = extras.getLong(PlayerCommands.EXTRA_SLEEP_REMAINING, -1L).takeIf { it >= 0 },
+            sleepStartedAt = extras.getLong(PlayerCommands.EXTRA_SLEEP_STARTED_AT, 0L), sleepEndsAt = extras.getLong(PlayerCommands.EXTRA_SLEEP_ENDS_AT, 0L),
+            fadeAnchorAt = extras.getLong(PlayerCommands.EXTRA_FADE_ANCHOR_AT, 0L), fadeAnchorVolume = extras.getFloat(PlayerCommands.EXTRA_FADE_ANCHOR_VOLUME, 1f),
+            playerVolume = extras.getFloat(PlayerCommands.EXTRA_PLAYER_VOLUME, SleepFadeStore.playerVolume(app)),
             bassSupported = extras.getBoolean(PlayerCommands.EXTRA_BASS_SUPPORTED, false), bassStrength = extras.getInt(PlayerCommands.EXTRA_BASS_STRENGTH, 0),
         )
     }
@@ -106,6 +128,9 @@ class PlayerConnection(context: Context) {
     fun setSleepTimerMinutes(minutes: Int) = withController { c ->
         c.sendCustomCommand(PlayerCommands.SLEEP_TIMER, Bundle().apply { putInt(PlayerCommands.ARG_MINUTES, minutes) })
     }
+
+    /** Player volume 0..1 (never the system volume). During a fade the rest of the fade continues from this level. */
+    fun setPlayerVolume(v: Float) = withController { it.volume = v.coerceIn(0f, 1f) }
 
     fun setBassBoost(strength: Int) = withController { c ->
         c.sendCustomCommand(PlayerCommands.BASS_BOOST, Bundle().apply { putInt(PlayerCommands.ARG_STRENGTH, strength) })

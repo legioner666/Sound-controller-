@@ -15,6 +15,8 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.soniccontrol.core.musiclibrary.QueueSnapshot
@@ -32,24 +34,27 @@ class SonicPlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private val main = Handler(Looper.getMainLooper())
     private lateinit var timer: SleepTimer
-    private val timerTick = Runnable { onTimerFired() }
-    private val fadeTick = object : Runnable {
-        override fun run() {
-            if (timer.remainingMillis() == null) return
-            player.volume = timer.fadeFactor()
-            if (timer.fadeFactor() > 0f) main.postDelayed(this, FADE_STEP_MILLIS)
-        }
-    }
+    /** One loop for the whole timer: checks the end by the wall clock and applies the planned player volume. */
+    private val timerTick = Runnable { onTimerTick() }
+    /** Last volume this service set itself; anything else seen in onVolumeChanged is a manual change. */
+    private var appliedVolume = 1f
+    private val scope = kotlinx.coroutines.MainScope()
     private var bass: BassBoost? = null
     private var bassStrength = 0
     private var announcedSession = 0
     private val saveRunnable = Runnable { saveQueueNow() }
-    private companion object { const val FADE_STEP_MILLIS = 250L }
+    private companion object {
+        const val FADE_STEP_MILLIS = 250L
+        /** Longest wait between checks before the ramp: a Handler delay does not count deep sleep, the wall clock does. */
+        const val MAX_IDLE_CHECK_MILLIS = 15_000L
+        const val VOLUME_EPSILON = 0.002f
+    }
 
     override fun onCreate() {
         super.onCreate()
         if (com.soniccontrol.core.background.AppShutdown.isSuppressed(this)) { stopSelf(); return }   // sleep timer ended: stay off until the app is opened by hand
-        timer = SleepTimer(System::currentTimeMillis)
+        SleepFadeStore.init(this)
+        timer = SleepTimer(System::currentTimeMillis, SleepFadeStore.settings.value, SleepFadeStore.playerVolume(this))
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
@@ -57,14 +62,34 @@ class SonicPlaybackService : MediaSessionService() {
             .build()
         session = MediaSession.Builder(this, player).setCallback(Callback()).build()
         restoreQueue()
+        applyVolume(timer.userVolume)                 // the user's player volume (never a faded one from a previous timer)
         player.addListener(object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
                         Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_POSITION_DISCONTINUITY)) scheduleSave()
             }
             override fun onAudioSessionIdChanged(audioSessionId: Int) = announceAudioSession(audioSessionId)
+            override fun onVolumeChanged(volume: Float) {
+                if (kotlin.math.abs(volume - appliedVolume) <= VOLUME_EPSILON) return   // our own fade step
+                // Manual change (app slider or any media controller): saved, and the rest of the fade starts from it.
+                appliedVolume = volume
+                timer.onManualVolume(volume)
+                SleepFadeStore.savePlayerVolume(this@SonicPlaybackService, volume)
+                if (timer.isRunning) reschedule()
+                publishExtras()
+            }
         })
         announceAudioSession(player.audioSessionId)
+        SleepTimerAlarm.onAlarm = { main.post { if (::timer.isInitialized && timer.isRunning) reschedule() } }
+        scope.launch {
+            // Settings changed in the UI: applied at once, also while the timer runs (no jump, see SleepTimer.updateSettings).
+            SleepFadeStore.settings.collect { s ->
+                if (s == timer.settings) return@collect
+                timer.updateSettings(s)
+                if (timer.isRunning) reschedule()
+                publishExtras()
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -78,7 +103,10 @@ class SonicPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         if (!::player.isInitialized) { super.onDestroy(); return }   // started while suppressed: nothing was created
-        main.removeCallbacks(timerTick); main.removeCallbacks(fadeTick); main.removeCallbacks(saveRunnable)
+        main.removeCallbacks(timerTick); main.removeCallbacks(saveRunnable)
+        scope.cancel()
+        SleepTimerAlarm.onAlarm = null
+        if (timer.isRunning) SleepTimerAlarm.cancel(this)
         saveQueueNow()
         releaseBass()
         announceAudioSessionClosed()
@@ -110,28 +138,60 @@ class SonicPlaybackService : MediaSessionService() {
     // ---- sleep timer / bass boost -------------------------------------------------------------------------------
 
     /**
-     * Timer end: playback stops completely, the queue is saved (paused), and the whole app is switched off — device monitoring,
-     * Bluetooth sessions, notifications, the UI — and may not restart until the user opens the app again. The faded volume is NOT
-     * restored here; this service instance simply ends (a new one starts at full volume only when the user starts it).
+     * Timer end — whatever the target volume: playback stops, the queue and position are saved (paused), and the whole app is
+     * switched off: device monitoring and the battery notification, Bluetooth sessions, notifications, the UI. Nothing may
+     * restart until the user opens the app by hand (AppShutdown, see SonicApp). The faded volume is not saved: the next start
+     * is at the user's own player volume.
      */
-    private fun onTimerFired() {
-        if (!timer.consumeIfExpired()) { publishExtras(); return }
-        main.removeCallbacks(fadeTick)
-        player.volume = 0f
+    private fun onTimerTick() { if (applyPlanOrEnd()) scheduleNext() }
+
+    /** Re-plans at once after a change (settings, manual volume, alarm) and schedules the next check. */
+    private fun reschedule() {
+        main.removeCallbacks(timerTick)
+        if (applyPlanOrEnd()) scheduleNext()
+    }
+
+    /** Ends the timer when its time is up (wall clock), otherwise applies the planned player volume. False when nothing runs. */
+    private fun applyPlanOrEnd(): Boolean {
+        if (timer.consumeIfExpired()) { endTimer(); return false }
+        if (!timer.isRunning) return false
+        applyVolume(timer.volume())
+        return true
+    }
+
+    /** Next check: every 250 ms while the volume goes down, otherwise at the ramp start (at most every 15 s) or the end. */
+    private fun scheduleNext() {
+        val left = timer.remainingMillis() ?: return
+        val toRamp = timer.fadeStartDelayMillis() ?: left
+        val next = if (toRamp <= 0) FADE_STEP_MILLIS else minOf(toRamp, MAX_IDLE_CHECK_MILLIS)
+        main.postDelayed(timerTick, minOf(next, left).coerceAtLeast(1))
+    }
+
+    private fun endTimer() {
+        main.removeCallbacks(timerTick)
+        SleepTimerAlarm.cancel(this)
+        applyVolume(0f)
         player.pause()
         saveQueueNow()
         player.stop()
-        com.soniccontrol.core.background.AppShutdown.suppress(this)   // stops monitoring + sessions, closes the UI (see SonicApp)
+        com.soniccontrol.core.background.AppShutdown.suppress(this)   // stops monitoring + sessions + battery notification, closes the UI (see SonicApp)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
+    private fun applyVolume(v: Float) {
+        appliedVolume = v.coerceIn(0f, 1f)
+        if (kotlin.math.abs(player.volume - appliedVolume) > 0.0005f) player.volume = appliedVolume
+    }
+
     private fun setSleepTimer(minutes: Int) {
-        main.removeCallbacks(timerTick); main.removeCallbacks(fadeTick)
-        player.volume = 1f                                        // user changed or cancelled the timer: manual restore
+        main.removeCallbacks(timerTick)
+        SleepTimerAlarm.cancel(this)
+        applyVolume(timer.userVolume)                             // user changed or cancelled the timer: manual restore
         timer.set(minutes)?.let { total ->
-            main.postDelayed(timerTick, total)
-            main.postDelayed(fadeTick, timer.fadeStartDelayMillis() ?: total)
+            SleepFadeStore.update(this, SleepFadeStore.settings.value.copy(lastTimerMinutes = minutes))
+            SleepTimerAlarm.schedule(this, System.currentTimeMillis() + total)
+            reschedule()
         }
         publishExtras()
     }
@@ -154,6 +214,11 @@ class SonicPlaybackService : MediaSessionService() {
     private fun publishExtras() {
         session?.setSessionExtras(Bundle().apply {
             putLong(PlayerCommands.EXTRA_SLEEP_REMAINING, timer.remainingMillis() ?: -1L)
+            putFloat(PlayerCommands.EXTRA_PLAYER_VOLUME, timer.userVolume)
+            timer.curve()?.let { c ->
+                putLong(PlayerCommands.EXTRA_SLEEP_STARTED_AT, c.startedAt); putLong(PlayerCommands.EXTRA_SLEEP_ENDS_AT, c.endsAt)
+                putLong(PlayerCommands.EXTRA_FADE_ANCHOR_AT, c.anchorAt); putFloat(PlayerCommands.EXTRA_FADE_ANCHOR_VOLUME, c.anchorVolume)
+            }
             putInt(PlayerCommands.EXTRA_BASS_STRENGTH, bassStrength)
             putBoolean(PlayerCommands.EXTRA_BASS_SUPPORTED, bassSupported)
         })

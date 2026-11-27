@@ -1,5 +1,8 @@
 # Журнал змін
 
+## 0.8.x (TASK 013)
+- Sleep timer: configurable fade of the player's own volume — on/off, length 5–100 % of the time or in minutes, end volume from 0 to the current volume, live graph of the planned volume; changes apply at once while the timer runs (no jumps) and are saved. Default unchanged (last 10 %, down to 0). The fade starts from the actual player volume (new "Player volume" slider); a manual volume change during the fade re-plans the rest from the new level. The system volume is never changed. The end is unchanged whatever the end volume (stop, save queue and position, full shutdown until opened by hand). Wall-clock checks plus a while-idle alarm backstop for screen-off. The second, system-volume sleep timer on the Automation page was removed; that page now shows the same single timer. UA/EN/PL, tests. See docs/TASK013_REPORT.md.
+
 ## 0.8.x (TASK 012)
 - The ongoing battery notification is now optional and **off by default**. Battery, charging and earbud activity (plus reconnect state) are on the main screen. Setting "Headphone battery notification" (UA/EN/PL) applies at once, persists across restarts and APK updates (new key; the old default-on value is not carried over), and a reconnecting headset never re-creates the notification while it is off. Android's mandatory foreground-service notification is respected: off means the service does not run. Adaptive refresh, background playback and the sleep timer are unchanged. See docs/TASK012_REPORT.md.
 

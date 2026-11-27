@@ -4,7 +4,7 @@
 | Module | Role |
 |---|---|
 | `core:musiclibrary` | `Track`, search/sort/group (`LibraryQuery`), MediaStore scanner, file-picker import, `MusicRepository` (playlists, favourites, saved queue; one private file, atomic writes) |
-| `core:player` | Media3 `SonicPlaybackService` (ExoPlayer + MediaSession), `PlayerConnection` (MediaController wrapper), `LibraryController`, sleep timer |
+| `core:player` | Media3 `SonicPlaybackService` (ExoPlayer + MediaSession), `PlayerConnection` (MediaController wrapper), `LibraryController`, the app's single sleep timer with the configurable fade (`SleepTimer`, `FadeCurve`, `SleepFadeStore`, TASK 013) |
 | `core:background` | `DeviceMonitorService` (foreground, type `connectedDevice`), notification text, `DeviceMonitorSource` |
 | `feature:player` | Music tab (tracks/albums/artists/folders/playlists/favourites, search, sort), full-screen player, mini player |
 
